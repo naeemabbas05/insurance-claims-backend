@@ -13,6 +13,10 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Chubb.Apac.ClaimsManagement
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Chubb.Apac.ClaimsManagement.Infrastructure", "src\Chubb.Apac.ClaimsManagement.Infrastructure\Chubb.Apac.ClaimsManagement.Infrastructure.csproj", "{D8875FFD-0B9F-43EF-9C29-B628AC87C770}"
 EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tests", "tests", "{0AB3BF05-4346-4AA6-1389-037BE0695223}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Chubb.Apac.ClaimsManagement.Domain.Tests", "tests\Chubb.Apac.ClaimsManagement.Domain.Tests\Chubb.Apac.ClaimsManagement.Domain.Tests.csproj", "{78AA47D1-D977-4F51-B9F3-0A6B93F1CCAE}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -71,6 +75,18 @@ Global
 		{D8875FFD-0B9F-43EF-9C29-B628AC87C770}.Release|x64.Build.0 = Release|Any CPU
 		{D8875FFD-0B9F-43EF-9C29-B628AC87C770}.Release|x86.ActiveCfg = Release|Any CPU
 		{D8875FFD-0B9F-43EF-9C29-B628AC87C770}.Release|x86.Build.0 = Release|Any CPU
+		{78AA47D1-D977-4F51-B9F3-0A6B93F1CCAE}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{78AA47D1-D977-4F51-B9F3-0A6B93F1CCAE}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{78AA47D1-D977-4F51-B9F3-0A6B93F1CCAE}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{78AA47D1-D977-4F51-B9F3-0A6B93F1CCAE}.Debug|x64.Build.0 = Debug|Any CPU
+		{78AA47D1-D977-4F51-B9F3-0A6B93F1CCAE}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{78AA47D1-D977-4F51-B9F3-0A6B93F1CCAE}.Debug|x86.Build.0 = Debug|Any CPU
+		{78AA47D1-D977-4F51-B9F3-0A6B93F1CCAE}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{78AA47D1-D977-4F51-B9F3-0A6B93F1CCAE}.Release|Any CPU.Build.0 = Release|Any CPU
+		{78AA47D1-D977-4F51-B9F3-0A6B93F1CCAE}.Release|x64.ActiveCfg = Release|Any CPU
+		{78AA47D1-D977-4F51-B9F3-0A6B93F1CCAE}.Release|x64.Build.0 = Release|Any CPU
+		{78AA47D1-D977-4F51-B9F3-0A6B93F1CCAE}.Release|x86.ActiveCfg = Release|Any CPU
+		{78AA47D1-D977-4F51-B9F3-0A6B93F1CCAE}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -80,5 +96,6 @@ Global
 		{200B7B9D-FD8E-4304-A1E4-424E115A1173} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
 		{76098E8A-1E51-4E3F-BED9-6EC053B4FA78} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
 		{D8875FFD-0B9F-43EF-9C29-B628AC87C770} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
+		{78AA47D1-D977-4F51-B9F3-0A6B93F1CCAE} = {0AB3BF05-4346-4AA6-1389-037BE0695223}
 	EndGlobalSection
 EndGlobal

@@ -1,15 +1,21 @@
 # Chubb APAC Claims Management
 
-Initial .NET 10 modular-monolith backend scaffold. It contains platform plumbing only; no claims or other business workflows are implemented.
+Initial .NET 10 modular-monolith backend. The Domain layer now contains the claims model and its business rules; no claim-management HTTP endpoints or application workflows are implemented yet.
 
 ## Architecture
 
 - `Chubb.Apac.ClaimsManagement.Api` is the HTTP host and composition root.
 - `Chubb.Apac.ClaimsManagement.Application` is reserved for use cases and application contracts.
-- `Chubb.Apac.ClaimsManagement.Domain` is reserved for domain models and rules.
+- `Chubb.Apac.ClaimsManagement.Domain` contains the claim aggregate, related entities, value objects, market catalog, and domain rules.
 - `Chubb.Apac.ClaimsManagement.Infrastructure` contains SQL Server persistence and external adapters.
 
 Dependencies point inward: API composes Application and Infrastructure; Infrastructure depends on Application and Domain. Keep future business modules grouped by module within the relevant layer and register each module from the API composition root. The modules run together in one process and deployable.
+
+## Claims domain
+
+The model supports Motor and Property claims. `MarketCatalog` requires exactly six unique market definitions and can be created from deployment-specific definitions; its defaults are Malaysia (MY/MYR), Indonesia (ID/IDR), Singapore (SG/SGD), Cambodia (KH/KHR), Thailand (TH/THB), and Australia (AU/AUD). Policy currency must match its configured market currency.
+
+Claims require an active policy covering the incident, matching claim and policy types, and at least one claimant. The aggregate enforces UTC timestamps, status transitions, staff market/role permissions, assessment and settlement limits, and claimant-bound information requests. Identifiers are UUIDs; financial amounts use decimal-backed `Money` values.
 
 ## Run locally
 
@@ -32,4 +38,10 @@ Set `ConnectionStrings__ClaimsDatabase` in the environment to configure another 
 
 ```powershell
 dotnet build Chubb.Apac.ClaimsManagement.sln
+```
+
+Run the Domain tests with:
+
+```powershell
+dotnet test Chubb.Apac.ClaimsManagement.sln
 ```
