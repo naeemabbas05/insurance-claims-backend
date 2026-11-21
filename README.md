@@ -1,6 +1,6 @@
-# Chubb APAC Claims Management
+# Chubb APAC Claims Management Backend
 
-Initial .NET 10 modular-monolith backend with claim submission and tracking endpoints.
+.NET 10 modular-monolith backend for Chubb APAC motor and property claims. The solution includes claim submission, lifecycle and staff operations, management reporting, SQL Server persistence, JWT authorization, and Kafka outbox publishing.
 
 ## Architecture
 
@@ -11,6 +11,22 @@ Initial .NET 10 modular-monolith backend with claim submission and tracking endp
 
 Dependencies point inward: API composes Application and Infrastructure; Infrastructure depends on Application and Domain. Keep future business modules grouped by module within the relevant layer and register each module from the API composition root. The modules run together in one process and deployable.
 
+### Entity relationships
+
+- A `MarketDefinition` has many `Policy` and `StaffUser` relationships. Staff-to-market membership is many-to-many.
+- A `Policy` belongs to one market and can have many `Claim` records.
+- `Claim` is the aggregate root. It owns its claimants, documents, assignments, assessments, status history, information requests, settlements, and audit entries.
+- Assignments link claims to staff; assessments and status changes may reference staff actors. Information requests link a claim, claimant, and requesting staff member. Settlements link a claim and payee claimant, and record staff actors for proposal, approval, and payment.
+- Claim submission idempotency records point to the claim created by the original request. Outbox rows contain claim identifiers and event payloads for delivery.
+
+The aggregate enforces claim and financial rules; EF Core configurations define the relational keys, indexes, concurrency tokens, and delete behavior.
+
+### REST and Kafka
+
+REST is used for synchronous claimant, staff, and management workflows: callers need immediate validation, authorization, and a response describing the committed result. SQL Server is the system of record.
+
+Kafka is used for asynchronous downstream notifications, not for request/response APIs or as the claims database. Versioned event records are written to the SQL transactional outbox with the claim change, then published in the background. This avoids making claim commits depend on broker availability. Delivery is at-least-once, so consumers must deduplicate by `EventId`.
+
 ## Claims domain
 
 The model supports Motor and Property claims. `MarketCatalog` requires exactly six unique market definitions and can be created from deployment-specific definitions; its defaults are Malaysia (MY/MYR), Indonesia (ID/IDR), Singapore (SG/SGD), Cambodia (KH/KHR), Thailand (TH/THB), and Australia (AU/AUD). Policy currency must match its configured market currency.
@@ -19,7 +35,7 @@ Claims require an active policy covering the incident, matching claim and policy
 
 ## Run locally
 
-Requires the .NET 10 SDK. The Development configuration uses SQL Server LocalDB; the API does not connect to the database during startup.
+Requires the .NET 10 SDK. The Development configuration uses SQL Server LocalDB. The API does not apply migrations automatically; apply them before using database-backed endpoints. The background outbox publisher starts polling SQL Server after host startup.
 In Development, JWT authority and audience settings are optional so the API, health checks, and Swagger can run without an identity provider; authenticated endpoints remain unavailable until JWT settings are supplied. Outside Development, both settings are required at startup. See [Authentication and authorization](#authentication-and-authorization) to configure them.
 
 ```powershell
@@ -39,6 +55,7 @@ Submit a Motor or Property claim with a unique `Idempotency-Key` header. The API
 
 ```http
 POST /api/v1/claims
+Authorization: Bearer <claimant-jwt>
 Idempotency-Key: submission-key-123
 Content-Type: application/json
 
@@ -59,6 +76,21 @@ Content-Type: application/json
 ```
 
 Track a submitted claim using `GET /api/v1/claims/{claimReference}`.
+
+Staff lifecycle calls use a `ClaimsOfficer` or `Manager` JWT. For example:
+
+```http
+POST /api/v1/claims/{claimReference}/assessments
+Authorization: Bearer <staff-jwt>
+Content-Type: application/json
+
+{
+  "assessedDamageAmount": 1000.00,
+  "recommendedSettlementAmount": 800.00,
+  "currencyCode": "MYR",
+  "findings": "Repair estimate reviewed."
+}
+```
 
 ## Claim lifecycle
 
@@ -87,6 +119,19 @@ Staff APIs require the `ClaimsOfficer` or `Manager` JWT role and a staff identit
 - `GET /api/v1/staff/claims/{claimReference}/assignments` returns assignment history, including prior officers and unassignment timestamps.
 
 Only one active assignment per role is permitted on a claim. Assignment changes update the claim's concurrency version; stale concurrent changes return `409 Conflict`. Reassignment closes the prior assignment record and creates a new one so history is preserved.
+
+Example assignment request:
+
+```http
+POST /api/v1/staff/claims/{claimReference}/assignments
+Authorization: Bearer <staff-jwt>
+Content-Type: application/json
+
+{
+  "officerId": "00000000-0000-0000-0000-000000000001",
+  "role": "adjuster"
+}
+```
 
 ## Management reporting
 
@@ -145,14 +190,43 @@ dotnet ef database update --project src\Chubb.Apac.ClaimsManagement.Infrastructu
 
 The migrations create the claims and transactional outbox schemas, rowversion concurrency columns, indexes and foreign keys, and seed six APAC markets, sample Motor and Property policies, and sample staff users. Claim submission uses a repository to atomically persist claims and idempotency records.
 
-## Build
+## Build and tests
 
 ```powershell
+dotnet restore Chubb.Apac.ClaimsManagement.sln
+dotnet tool restore
 dotnet build Chubb.Apac.ClaimsManagement.sln
-```
-
-Run the Domain tests with:
-
-```powershell
 dotnet test Chubb.Apac.ClaimsManagement.sln
 ```
+
+The xUnit projects cover domain rules, submission/idempotency, lifecycle transitions, approval/rejection/settlement, staff assignments, authorization, and reporting. An opt-in SQL Server integration test runs a full submission-to-settlement journey against the actual migrations and repository queries, including financial exposure and outbox persistence. It creates and drops a uniquely named test database:
+
+```powershell
+$env:CHUBB_CLAIMS_SQLSERVER_TEST_CONNECTION_STRING = "Server=.\SQLEXPRESS;Database=master;Trusted_Connection=True;TrustServerCertificate=True;Encrypt=True"
+dotnet test tests\Chubb.Apac.ClaimsManagement.Infrastructure.IntegrationTests
+```
+
+The integration test is reported as skipped when `CHUBB_CLAIMS_SQLSERVER_TEST_CONNECTION_STRING` is unset. Its SQL Server login must be allowed to create and drop databases. Do not point the test at a production SQL Server.
+
+## Assumptions
+
+- The deployment supplies exactly the six configured APAC market definitions. Defaults are MY/MYR, ID/IDR, SG/SGD, KH/KHR, TH/THB, and AU/AUD.
+- The identity provider is external and issues trusted JWTs with the documented roles and identity claims. Development can start without JWT settings for health/Swagger use, but protected routes still require a valid token.
+- Claim and incident timestamps are UTC. Management date filters are inclusive UTC calendar dates over `ReportedAtUtc`.
+- Financial report values remain separated by currency. No FX rate source or conversion policy is implemented.
+- Sample policies and staff are migration seed data for development/testing, not a production onboarding process.
+- Claim event consumers accept at-least-once delivery and deduplicate by event ID.
+
+## Limitations and future improvements
+
+- Configure and validate a production identity provider, role provisioning, and staff lifecycle; this repository does not issue JWTs or manage IdP users.
+- Readiness currently checks API process health only, not SQL Server or Kafka connectivity.
+- Kafka publishing is implemented, but inbound consumers, schema registry integration, dead-letter operations, and event retention are not.
+- Documents currently have domain metadata only; binary upload, malware scanning, retention, and secure object storage need implementation.
+- Reporting intentionally does not convert currencies. A governed FX source and explicit reporting-date conversion policy would be required before adding consolidated totals.
+- Production hardening should add distributed tracing, operational metrics/alerts for outbox age and retries, database backup/retention policies, and CI execution of SQL Server integration tests.
+- Further market-specific regulatory workflows, localization, and configurable claim reference rules can be added as requirements are confirmed.
+
+## Development journal
+
+See [DEVELOPMENT_JOURNAL.md](DEVELOPMENT_JOURNAL.md) for the development history and final assessment notes.
