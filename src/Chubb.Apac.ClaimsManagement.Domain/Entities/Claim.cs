@@ -121,6 +121,8 @@ public sealed class Claim : Entity
 
     public DateTimeOffset CreatedAtUtc { get; private set; }
 
+    public int AssignmentVersion { get; private set; }
+
     public IReadOnlyCollection<Claimant> Claimants => _claimants.AsReadOnly();
 
     public IReadOnlyCollection<ClaimDocument> Documents => _documents.AsReadOnly();
@@ -178,24 +180,33 @@ public sealed class Claim : Entity
     }
 
     public ClaimAssignment Assign(
-        StaffUser staffUser,
+        StaffUser assignedOfficer,
         AssignmentRole role,
+        StaffUser assignedBy,
         DateTimeOffset assignedAtUtc)
     {
-        ArgumentNullException.ThrowIfNull(staffUser);
-        EnsureNotClosed();
-        EnsureStaffCanPerform(staffUser, ToStaffRole(role));
+        ArgumentNullException.ThrowIfNull(assignedOfficer);
+        ArgumentNullException.ThrowIfNull(assignedBy);
+        EnsureCanBeAssigned();
+        EnsureStaffCanPerform(assignedBy, StaffRole.ClaimsHandler);
         DomainRule.Require(Enum.IsDefined(role), "Assignment role is invalid.");
+        EnsureStaffCanPerform(assignedOfficer, ToStaffRole(role));
         DomainRule.Utc(assignedAtUtc, nameof(assignedAtUtc));
         DomainRule.Require(assignedAtUtc >= ReportedAtUtc, "Assignment cannot precede claim submission.");
-        DomainRule.Require(
-            !_assignments.Any(assignment =>
-                assignment.IsActive && assignment.StaffUserId == staffUser.Id && assignment.Role == role),
-            "Staff user already has an active assignment for this claim and role.");
+        if (_assignments.Any(assignment => assignment.IsActive && assignment.Role == role))
+        {
+            throw new AssignmentConflictException(
+                $"An active '{role}' assignment already exists for this claim.");
+        }
 
-        var assignment = new ClaimAssignment(Id, staffUser, role, assignedAtUtc);
+        var assignment = new ClaimAssignment(Id, assignedOfficer, role, assignedAtUtc);
         _assignments.Add(assignment);
-        RecordAudit("StaffAssigned", assignedAtUtc, $"Assignment:{assignment.Id}; Role:{role}", staffUser);
+        AssignmentVersion = checked(AssignmentVersion + 1);
+        RecordAudit(
+            "StaffAssigned",
+            assignedAtUtc,
+            $"Assignment:{assignment.Id}; Officer:{assignedOfficer.Id}; Role:{role}",
+            assignedBy);
         return assignment;
     }
 
@@ -204,7 +215,51 @@ public sealed class Claim : Entity
         ArgumentNullException.ThrowIfNull(unassignedBy);
         EnsureStaffCanPerform(unassignedBy, StaffRole.ClaimsHandler);
         FindEntity(_assignments, assignmentId, "Claim assignment").Unassign(unassignedAtUtc);
+        AssignmentVersion = checked(AssignmentVersion + 1);
         RecordAudit("StaffUnassigned", unassignedAtUtc, $"Assignment:{assignmentId}", unassignedBy);
+    }
+
+    public ClaimAssignment Reassign(
+        Guid assignmentId,
+        StaffUser newOfficer,
+        StaffUser reassignedBy,
+        DateTimeOffset reassignedAtUtc)
+    {
+        ArgumentNullException.ThrowIfNull(newOfficer);
+        ArgumentNullException.ThrowIfNull(reassignedBy);
+        EnsureCanBeAssigned();
+        EnsureStaffCanPerform(reassignedBy, StaffRole.ClaimsHandler);
+        var existingAssignment = FindEntity(_assignments, assignmentId, "Claim assignment");
+        if (!existingAssignment.IsActive)
+        {
+            throw new AssignmentConflictException("Only an active assignment can be reassigned.");
+        }
+        if (_assignments.Any(assignment =>
+                assignment.Id != existingAssignment.Id &&
+                assignment.IsActive &&
+                assignment.Role == existingAssignment.Role))
+        {
+            throw new AssignmentConflictException(
+                $"Another active '{existingAssignment.Role}' assignment exists for this claim.");
+        }
+
+        EnsureStaffCanPerform(newOfficer, ToStaffRole(existingAssignment.Role));
+        DomainRule.Utc(reassignedAtUtc, nameof(reassignedAtUtc));
+        DomainRule.Require(
+            reassignedAtUtc >= existingAssignment.AssignedAtUtc,
+            "Reassignment cannot precede the active assignment.");
+        DomainRule.Require(
+            newOfficer.Id != existingAssignment.StaffUserId,
+            "The assigned officer is already assigned to this claim.");
+
+        existingAssignment.Unassign(reassignedAtUtc);
+        AssignmentVersion = checked(AssignmentVersion + 1);
+        RecordAudit(
+            "StaffUnassigned",
+            reassignedAtUtc,
+            $"Assignment:{existingAssignment.Id}; Reassigned",
+            reassignedBy);
+        return Assign(newOfficer, existingAssignment.Role, reassignedBy, reassignedAtUtc);
     }
 
     public ClaimDocument AddDocument(
@@ -693,6 +748,11 @@ public sealed class Claim : Entity
 
     private void EnsureNotClosed() =>
         DomainRule.Require(Status != ClaimStatus.Closed, "A closed claim cannot be modified.");
+
+    private void EnsureCanBeAssigned() =>
+        DomainRule.Require(
+            Status is not ClaimStatus.Closed and not ClaimStatus.Settled,
+            "Closed or settled claims cannot be assigned.");
 
     private void EnsureNotBeforeLastStatusChange(DateTimeOffset timestampUtc) =>
         DomainRule.Require(

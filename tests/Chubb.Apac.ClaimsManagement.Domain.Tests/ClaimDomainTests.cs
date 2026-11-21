@@ -174,10 +174,51 @@ public sealed class ClaimDomainTests
     {
         var claim = CreateClaim(CreatePolicy(PolicyType.Motor), ClaimType.Motor);
         var indonesiaHandler = CreateStaff(StaffRole.ClaimsHandler, "ID");
+        var malaysiaHandler = CreateStaff(StaffRole.ClaimsHandler, "MY");
 
         Assert.Throws<DomainAuthorizationException>(() =>
-            claim.Assign(indonesiaHandler, AssignmentRole.ClaimsHandler, Reported.AddDays(1)));
+            claim.Assign(
+                indonesiaHandler,
+                AssignmentRole.ClaimsHandler,
+                malaysiaHandler,
+                Reported.AddDays(1)));
         Assert.Empty(claim.Assignments);
+    }
+
+    [Fact]
+    public void ReassignmentPreservesHistoryAndRejectsConflictingActiveAssignments()
+    {
+        var claim = CreateClaim(CreatePolicy(PolicyType.Motor), ClaimType.Motor);
+        var manager = CreateStaff(StaffRole.ClaimsHandler, "MY");
+        var firstAdjuster = CreateStaff(StaffRole.Adjuster, "MY");
+        var secondAdjuster = CreateStaff(StaffRole.Adjuster, "MY");
+        var firstAssignment = claim.Assign(
+            firstAdjuster,
+            AssignmentRole.Adjuster,
+            manager,
+            Reported.AddDays(1));
+
+        Assert.Throws<AssignmentConflictException>(() =>
+            claim.Assign(
+                secondAdjuster,
+                AssignmentRole.Adjuster,
+                manager,
+                Reported.AddDays(1)));
+
+        var reassigned = claim.Reassign(
+            firstAssignment.Id,
+            secondAdjuster,
+            manager,
+            Reported.AddDays(2));
+
+        Assert.False(firstAssignment.IsActive);
+        Assert.Equal(Reported.AddDays(2), firstAssignment.UnassignedAtUtc);
+        Assert.True(reassigned.IsActive);
+        Assert.Equal(secondAdjuster.Id, reassigned.StaffUserId);
+        Assert.Equal(3, claim.AssignmentVersion);
+        Assert.Equal(2, claim.Assignments.Count);
+        Assert.Contains(claim.AuditHistory, entry => entry.Action == "StaffUnassigned");
+        Assert.Equal(2, claim.AuditHistory.Count(entry => entry.Action == "StaffAssigned"));
     }
 
     private static Claim CreateClaim(Policy policy, ClaimType type) =>

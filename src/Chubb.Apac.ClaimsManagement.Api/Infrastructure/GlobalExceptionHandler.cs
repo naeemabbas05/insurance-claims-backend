@@ -1,10 +1,12 @@
 using Chubb.Apac.ClaimsManagement.Application.Claims.Submit;
 using Chubb.Apac.ClaimsManagement.Application.Claims.Lifecycle;
+using Chubb.Apac.ClaimsManagement.Application.Claims.Staff;
 using Chubb.Apac.ClaimsManagement.Domain.Common;
 using FluentValidation;
 using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Data.SqlClient;
 
 namespace Chubb.Apac.ClaimsManagement.Api.Infrastructure;
 
@@ -21,10 +23,16 @@ public sealed class GlobalExceptionHandler(
             ValidationException => StatusCodes.Status400BadRequest,
             PolicyNotFoundException => StatusCodes.Status404NotFound,
             ClaimLifecycleNotFoundException => StatusCodes.Status404NotFound,
+            StaffClaimNotFoundException or StaffOfficerNotFoundException or
+                StaffClaimAssignmentNotFoundException => StatusCodes.Status404NotFound,
             IdempotencyKeyConflictException => StatusCodes.Status409Conflict,
+            AssignmentConflictException => StatusCodes.Status409Conflict,
             DbUpdateConcurrencyException => StatusCodes.Status409Conflict,
+            DbUpdateException updateException when IsUniqueConstraintViolation(updateException) =>
+                StatusCodes.Status409Conflict,
             ClaimLifecycleAccessDeniedException or ClaimLifecycleActorNotFoundException =>
                 StatusCodes.Status403Forbidden,
+            StaffClaimAccessDeniedException => StatusCodes.Status403Forbidden,
             DomainAuthorizationException => StatusCodes.Status403Forbidden,
             MarketNotConfiguredException or DomainRuleViolationException =>
                 StatusCodes.Status422UnprocessableEntity,
@@ -68,7 +76,11 @@ public sealed class GlobalExceptionHandler(
                     StatusCodes.Status404NotFound => "The requested resource was not found.",
                     StatusCodes.Status409Conflict => exception is IdempotencyKeyConflictException
                         ? "The idempotency key conflicts with an earlier request."
-                        : "The resource was changed by another request.",
+                        : exception is AssignmentConflictException ||
+                          exception is DbUpdateException updateException &&
+                          IsUniqueConstraintViolation(updateException)
+                            ? "The claim already has a conflicting assignment."
+                            : "The resource was changed by another request.",
                     StatusCodes.Status403Forbidden => "The current actor is not authorized for this claim.",
                     StatusCodes.Status422UnprocessableEntity => "The claim submission is not valid.",
                     _ => "An unexpected error occurred."
@@ -84,4 +96,7 @@ public sealed class GlobalExceptionHandler(
         await httpContext.Response.WriteAsJsonAsync(problemDetails, cancellationToken);
         return true;
     }
+
+    private static bool IsUniqueConstraintViolation(DbUpdateException exception) =>
+        exception.InnerException is SqlException { Number: 2601 or 2627 };
 }
