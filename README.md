@@ -17,6 +17,7 @@ Dependencies point inward: API composes Application and Infrastructure; Infrastr
 - A `Policy` belongs to one market and can have many `Claim` records.
 - `Claim` is the aggregate root. It owns its claimants, documents, assignments, assessments, status history, information requests, settlements, and audit entries.
 - Assignments link claims to staff; assessments and status changes may reference staff actors. Information requests link a claim, claimant, and requesting staff member. Settlements link a claim and payee claimant, and record staff actors for proposal, approval, and payment.
+- Claimant notifications belong to both the claim and recipient claimant. They are stored with claim changes and carry an idempotency key and read timestamp.
 - Claim submission idempotency records point to the claim created by the original request. Outbox rows contain claim identifiers and event payloads for delivery.
 
 The aggregate enforces claim and financial rules; EF Core configurations define the relational keys, indexes, concurrency tokens, and delete behavior.
@@ -76,6 +77,28 @@ Content-Type: application/json
 ```
 
 Track a submitted claim using `GET /api/v1/claims/{claimReference}`.
+Claimants can retrieve a decision summary using `GET /api/v1/claims/{claimReference}/decision`. It reports the outcome, decision timestamp, approved amount and currency where applicable, a general customer-facing explanation, and settlement status. Internal staff-entered reasons and assessment findings are not returned by this endpoint.
+
+Claimant inbox endpoints are `GET /api/v1/claimant/notifications?page=1&pageSize=20&unreadOnly=true` and `PUT /api/v1/claimant/notifications/{notificationId}/read`. Results are paged (up to 100 per page), and a claimant can only list or mark their own notifications as read. Notifications are recorded for submission, requests for additional information, approval, decline, and settlement payment. Additional-information messages are generic; claimants can retrieve their own request details and status with `GET /api/v1/claims/{claimReference}/information-requests` before responding using `POST /api/v1/claims/{claimReference}/information-requests/{requestId}/responses`.
+
+Example approved decision response:
+
+```json
+{
+  "claimReference": "CLM-MY-0123456789ABCDEF0123456789ABCDEF",
+  "status": "approved",
+  "decision": {
+    "outcome": "approved",
+    "decidedAtUtc": "2026-03-12T09:00:00Z",
+    "approvedAmount": 750.00,
+    "currencyCode": "MYR",
+    "customerMessage": "Your claim has been approved.",
+    "settlementStatus": "Pending"
+  }
+}
+```
+
+Before a final decision, `decision` is `null`. For declined claims, the approved amount, currency, and settlement status are `null`.
 
 Staff lifecycle calls use a `ClaimsOfficer` or `Manager` JWT. For example:
 
@@ -145,6 +168,22 @@ Dates are UTC calendar dates applied inclusively to the claim's `ReportedAtUtc`.
 
 Financial totals are grouped by currency and returned as separate lists; the API does not convert or combine currencies. Outstanding estimated exposure sums estimates for claims not declined, settled, or closed. Assessed amount uses each claim's latest assessment. Approved amount sums claim-level approvals. Approved but unpaid liability sums approved settlement transactions that have not been paid; settled amount sums paid settlement transactions. All these measures use the same reported-date and market-filtered claim cohort.
 
+Additional management endpoints use the same market authorization:
+
+- `GET /api/v1/management/reports/aging` groups currently open claims into 0–7, 8–14, 15–30, and 31+ day buckets based on time since reporting. Declined, settled, and closed claims are excluded.
+- `GET /api/v1/management/reports/performance` reports officer decision counts (approved and declined) and average calendar-day boundaries from report to decision (`DATEDIFF(day)`). Date filters apply to decision timestamps, and a reopened claim may contribute more than one decision.
+- `GET /api/v1/management/reports/sla` compares the age of currently open claims with the configured target and reports within-target, breached, and breach-rate values. With no open claims the breach rate is `0`.
+
+Example requests:
+
+```http
+GET /api/v1/management/reports/aging?marketCode=MY&fromDate=2026-01-01&toDate=2026-12-31
+GET /api/v1/management/reports/performance?marketCode=MY&fromDate=2026-01-01&toDate=2026-12-31
+GET /api/v1/management/reports/sla?marketCode=MY
+```
+
+The SLA target is configured with `ManagementReporting:SlaTargetDays` (environment variable `ManagementReporting__SlaTargetDays`). The local default is 14 days for demonstration only; it is not an official Chubb target. Aging and SLA reports use the selected reported-date cohort and evaluate it as of the response's `asOfUtc` timestamp.
+
 The infrastructure layer reads `ConnectionStrings__ClaimsDatabase` from standard ASP.NET Core configuration. Set the environment variable to override the Development LocalDB value:
 
 ```powershell
@@ -213,6 +252,8 @@ The integration test is reported as skipped when `CHUBB_CLAIMS_SQLSERVER_TEST_CO
 - The deployment supplies exactly the six configured APAC market definitions. Defaults are MY/MYR, ID/IDR, SG/SGD, KH/KHR, TH/THB, and AU/AUD.
 - The identity provider is external and issues trusted JWTs with the documented roles and identity claims. Development can start without JWT settings for health/Swagger use, but protected routes still require a valid token.
 - Claim and incident timestamps are UTC. Management date filters are inclusive UTC calendar dates over `ReportedAtUtc`.
+- Decision explanations returned to claimants are generic by design; staff-entered decision reasons remain internal until a separately reviewed customer-safe explanation field and workflow are defined.
+- The default 14-day SLA target is illustrative and must be replaced with approved market-specific targets before production use.
 - Financial report values remain separated by currency. No FX rate source or conversion policy is implemented.
 - Sample policies and staff are migration seed data for development/testing, not a production onboarding process.
 - Claim event consumers accept at-least-once delivery and deduplicate by event ID.
@@ -223,6 +264,7 @@ The integration test is reported as skipped when `CHUBB_CLAIMS_SQLSERVER_TEST_CO
 - Readiness currently checks API process health only, not SQL Server or Kafka connectivity.
 - Kafka publishing is implemented, but inbound consumers, schema registry integration, dead-letter operations, and event retention are not.
 - Documents currently have domain metadata only; binary upload, malware scanning, retention, and secure object storage need implementation.
+- This repository contains the backend only; the assessment's shared Angular application for claimants and claims staff remains to be built.
 - Reporting intentionally does not convert currencies. A governed FX source and explicit reporting-date conversion policy would be required before adding consolidated totals.
 - Production hardening should add distributed tracing, operational metrics/alerts for outbox age and retries, database backup/retention policies, and CI execution of SQL Server integration tests.
 - Further market-specific regulatory workflows, localization, and configurable claim reference rules can be added as requirements are confirmed.
