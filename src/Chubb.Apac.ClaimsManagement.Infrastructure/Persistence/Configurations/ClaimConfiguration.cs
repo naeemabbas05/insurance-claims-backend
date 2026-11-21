@@ -128,6 +128,13 @@ internal sealed class ClaimConfiguration : IEntityTypeConfiguration<Claim>
         builder.HasIndex(claim => claim.Number).IsUnique();
         builder.HasIndex(claim => new { claim.PolicyId, claim.IncidentAtUtc });
         builder.HasIndex(claim => new { claim.Status, claim.ReportedAtUtc });
+        builder.HasIndex(claim => new
+        {
+            claim.ReportedAtUtc,
+            claim.PolicyId,
+            claim.Status,
+            claim.Type
+        });
         builder.Property<byte[]>("RowVersion").IsRowVersion().IsRequired();
     }
 }

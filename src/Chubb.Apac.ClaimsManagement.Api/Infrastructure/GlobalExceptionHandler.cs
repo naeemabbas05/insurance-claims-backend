@@ -1,6 +1,7 @@
 using Chubb.Apac.ClaimsManagement.Application.Claims.Submit;
 using Chubb.Apac.ClaimsManagement.Application.Claims.Lifecycle;
 using Chubb.Apac.ClaimsManagement.Application.Claims.Staff;
+using Chubb.Apac.ClaimsManagement.Application.ManagementReporting;
 using Chubb.Apac.ClaimsManagement.Domain.Common;
 using FluentValidation;
 using Microsoft.AspNetCore.Diagnostics;
@@ -33,6 +34,7 @@ public sealed class GlobalExceptionHandler(
             ClaimLifecycleAccessDeniedException or ClaimLifecycleActorNotFoundException =>
                 StatusCodes.Status403Forbidden,
             StaffClaimAccessDeniedException => StatusCodes.Status403Forbidden,
+            ManagementReportAccessDeniedException => StatusCodes.Status403Forbidden,
             DomainAuthorizationException => StatusCodes.Status403Forbidden,
             MarketNotConfiguredException or DomainRuleViolationException =>
                 StatusCodes.Status422UnprocessableEntity,
@@ -81,7 +83,9 @@ public sealed class GlobalExceptionHandler(
                           IsUniqueConstraintViolation(updateException)
                             ? "The claim already has a conflicting assignment."
                             : "The resource was changed by another request.",
-                    StatusCodes.Status403Forbidden => "The current actor is not authorized for this claim.",
+                    StatusCodes.Status403Forbidden => exception is ManagementReportAccessDeniedException
+                        ? "The current staff member is not authorized to view these reports."
+                        : "The current actor is not authorized for this claim.",
                     StatusCodes.Status422UnprocessableEntity => "The claim submission is not valid.",
                     _ => "An unexpected error occurred."
                 },

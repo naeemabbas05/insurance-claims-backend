@@ -87,6 +87,18 @@ Staff APIs require an authenticated principal carrying `staff_user_id` (or `Name
 
 Only one active assignment per role is permitted on a claim. Assignment changes update the claim's concurrency version; stale concurrent changes return `409 Conflict`. Reassignment closes the prior assignment record and creates a new one so history is preserved.
 
+## Management reporting
+
+`GET /api/v1/management/reports/claims` returns claim totals and breakdowns by status, market, and type, active workload by officer, and financial totals. Optional filters are `marketCode`, `fromDate`, and `toDate`:
+
+```http
+GET /api/v1/management/reports/claims?marketCode=MY&fromDate=2026-01-01&toDate=2026-12-31
+```
+
+Dates are UTC calendar dates applied inclusively to the claim's `ReportedAtUtc`. If `marketCode` is omitted, the report covers all markets assigned to the requesting staff member. Access is limited to active Approver, FinanceOfficer, and Administrator staff; all results remain restricted to their assigned markets. Unassigned claims and officer workload count only non-closed, non-settled claims with active assignments.
+
+Financial totals are grouped by currency and returned as separate lists; the API does not convert or combine currencies. Outstanding estimated exposure sums estimates for claims not declined, settled, or closed. Assessed amount uses each claim's latest assessment. Approved amount sums claim-level approvals. Approved but unpaid liability sums approved settlement transactions that have not been paid; settled amount sums paid settlement transactions. All these measures use the same reported-date and market-filtered claim cohort.
+
 The infrastructure layer reads `ConnectionStrings__ClaimsDatabase` from standard ASP.NET Core configuration. Set the environment variable to override the Development LocalDB value:
 
 ```powershell

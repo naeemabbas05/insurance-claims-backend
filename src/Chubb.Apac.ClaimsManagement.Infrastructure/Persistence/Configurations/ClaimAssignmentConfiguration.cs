@@ -30,6 +30,8 @@ internal sealed class ClaimAssignmentConfiguration : IEntityTypeConfiguration<Cl
             .IsUnique()
             .HasFilter("[UnassignedAtUtc] IS NULL");
         builder.HasIndex(assignment => assignment.StaffUserId);
+        builder.HasIndex(assignment => new { assignment.StaffUserId, assignment.ClaimId })
+            .HasFilter("[UnassignedAtUtc] IS NULL");
         builder.Property<byte[]>("RowVersion").IsRowVersion().IsRequired();
     }
 }
