@@ -58,41 +58,45 @@ public sealed class ManagementClaimsReportingService(
             query.ToDate,
             asOfUtc,
             report.TotalOpenClaims,
-            report.Markets);
+            report.Aging);
     }
 
     public async Task<ManagementClaimsPerformanceReportResult> GetPerformanceReportAsync(
         ManagementClaimsReportQuery query,
         CancellationToken cancellationToken)
     {
+        ValidateSlaTarget();
         var scope = await GetScopeAsync(query, cancellationToken);
+        var asOfUtc = timeProvider.GetUtcNow();
         var report = await repository.GetPerformanceReportAsync(
             scope.Markets,
             scope.FromDateUtc,
             scope.ToDateExclusiveUtc,
+            asOfUtc,
+            reportingOptions.SlaTargetDays,
             cancellationToken);
 
         return new ManagementClaimsPerformanceReportResult(
             scope.MarketCode,
             query.FromDate,
             query.ToDate,
-            report.TotalDecisions,
-            report.Officers);
+            asOfUtc,
+            report.TotalClaims,
+            report.CompletedClaims,
+            report.ClaimsPending,
+            report.AverageTurnaroundDays,
+            report.ClaimsOlderThan30Days,
+            CalculateAttainmentPercentage(report.SlaAchievedClaims, report.EligibleSlaClaims));
     }
 
     public async Task<ManagementClaimsSlaReportResult> GetSlaReportAsync(
         ManagementClaimsReportQuery query,
         CancellationToken cancellationToken)
     {
-        if (reportingOptions.SlaTargetDays <= 0)
-        {
-            throw new InvalidOperationException(
-                "ManagementReporting:SlaTargetDays must be greater than zero.");
-        }
-
+        ValidateSlaTarget();
         var scope = await GetScopeAsync(query, cancellationToken);
         var asOfUtc = timeProvider.GetUtcNow();
-        var report = await repository.GetSlaReportAsync(
+        var report = await repository.GetPerformanceReportAsync(
             scope.Markets,
             scope.FromDateUtc,
             scope.ToDateExclusiveUtc,
@@ -106,11 +110,10 @@ public sealed class ManagementClaimsReportingService(
             query.ToDate,
             reportingOptions.SlaTargetDays,
             asOfUtc,
-            report.TotalOpenClaims,
-            report.WithinTarget,
-            report.Breached,
-            CalculateBreachRate(report.Breached, report.TotalOpenClaims),
-            report.Markets);
+            report.EligibleSlaClaims,
+            report.SlaAchievedClaims,
+            report.SlaBreachedClaims,
+            CalculateAttainmentPercentage(report.SlaAchievedClaims, report.EligibleSlaClaims));
     }
 
     private async Task<ReportingScope> GetScopeAsync(
@@ -157,8 +160,17 @@ public sealed class ManagementClaimsReportingService(
             query.MarketCode?.ToUpperInvariant());
     }
 
-    private static decimal CalculateBreachRate(int breached, int total) =>
-        total == 0 ? 0m : decimal.Round((decimal)breached / total * 100m, 2);
+    private void ValidateSlaTarget()
+    {
+        if (reportingOptions.SlaTargetDays <= 0)
+        {
+            throw new InvalidOperationException(
+                "ManagementReporting:SlaTargetDays must be greater than zero.");
+        }
+    }
+
+    private static decimal CalculateAttainmentPercentage(int achieved, int eligible) =>
+        eligible == 0 ? 0m : decimal.Round((decimal)achieved / eligible * 100m, 2);
 
     private sealed record ReportingScope(
         IReadOnlyCollection<MarketCode> Markets,

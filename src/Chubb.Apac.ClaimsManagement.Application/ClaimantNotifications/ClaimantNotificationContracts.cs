@@ -10,8 +10,8 @@ public sealed record ClaimantNotificationQuery(
 
 public sealed record ClaimantNotificationItem(
     Guid Id,
-    string ClaimReference,
-    string Category,
+    string ClaimNumber,
+    string Type,
     string Title,
     string Message,
     DateTimeOffset CreatedAtUtc,

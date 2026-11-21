@@ -98,11 +98,11 @@ public sealed class ClaimLifecycleTests
             claim.Notifications.Select(notification => notification.Category));
 
         var decision = await service.GetDecisionAsync(claim.Number.Value, CancellationToken.None);
-        Assert.Equal(ClaimStatus.Approved, decision.Decision!.Outcome);
+        Assert.Equal(ClaimStatus.Approved, decision.Decision!.DecisionType);
         Assert.Equal(750m, decision.Decision.ApprovedAmount);
-        Assert.Equal("MYR", decision.Decision.CurrencyCode);
+        Assert.Equal("MYR", decision.Decision.Currency);
         Assert.Equal("Paid", decision.Decision.SettlementStatus);
-        Assert.DoesNotContain("Coverage confirmed.", decision.Decision.CustomerMessage);
+        Assert.DoesNotContain("Coverage confirmed.", decision.Decision.Reason);
 
         var history = await service.GetStatusHistoryAsync(claim.Number.Value, CancellationToken.None);
         Assert.Equal(
@@ -223,8 +223,8 @@ public sealed class ClaimLifecycleTests
         Assert.Contains(eventOutbox.Events, item => item is ClaimRejectedV1);
         Assert.Equal(2, eventOutbox.Events.OfType<ClaimStatusChangedV1>().Count());
         var decision = await service.GetDecisionAsync(claim.Number.Value, CancellationToken.None);
-        Assert.Equal(ClaimStatus.Declined, decision.Decision!.Outcome);
-        Assert.DoesNotContain("The loss is not covered.", decision.Decision.CustomerMessage);
+        Assert.Equal(ClaimStatus.Declined, decision.Decision!.DecisionType);
+        Assert.DoesNotContain("The loss is not covered.", decision.Decision.Reason);
     }
 
     private static ClaimLifecycleService CreateService(

@@ -47,12 +47,7 @@ public sealed record ManagementClaimsReportData(
     IReadOnlyList<CurrencyAmountTotal> ApprovedButUnpaidLiability,
     IReadOnlyList<CurrencyAmountTotal> SettledAmount);
 
-public sealed record ClaimAgingBucket(string Label, int ClaimCount);
-
-public sealed record ClaimAgingMarketResult(
-    string MarketCode,
-    int TotalOpenClaims,
-    IReadOnlyList<ClaimAgingBucket> Buckets);
+public sealed record ClaimAgingBucket(string Bucket, int Count);
 
 public sealed record ManagementClaimsAgingReportResult(
     string? MarketCode,
@@ -60,37 +55,33 @@ public sealed record ManagementClaimsAgingReportResult(
     DateOnly? ToDate,
     DateTimeOffset AsOfUtc,
     int TotalOpenClaims,
-    IReadOnlyList<ClaimAgingMarketResult> Markets);
+    IReadOnlyList<ClaimAgingBucket> Aging);
 
 public sealed record ClaimsAgingReportData(
     int TotalOpenClaims,
-    IReadOnlyList<ClaimAgingMarketResult> Markets);
-
-public sealed record OfficerDecisionPerformance(
-    Guid OfficerId,
-    string OfficerName,
-    int DecisionCount,
-    int ApprovedCount,
-    int DeclinedCount,
-    decimal AverageProcessingDays);
+    IReadOnlyList<ClaimAgingBucket> Aging);
 
 public sealed record ManagementClaimsPerformanceReportResult(
     string? MarketCode,
     DateOnly? FromDate,
     DateOnly? ToDate,
-    int TotalDecisions,
-    IReadOnlyList<OfficerDecisionPerformance> Officers);
+    DateTimeOffset AsOfUtc,
+    int TotalClaims,
+    int CompletedClaims,
+    int ClaimsPending,
+    decimal AverageTurnaroundDays,
+    int ClaimsOlderThan30Days,
+    decimal SlaAttainmentPercentage);
 
 public sealed record ClaimsPerformanceReportData(
-    int TotalDecisions,
-    IReadOnlyList<OfficerDecisionPerformance> Officers);
-
-public sealed record ClaimSlaMarketResult(
-    string MarketCode,
-    int TotalOpenClaims,
-    int WithinTarget,
-    int Breached,
-    decimal BreachRatePercentage);
+    int TotalClaims,
+    int CompletedClaims,
+    int ClaimsPending,
+    decimal AverageTurnaroundDays,
+    int ClaimsOlderThan30Days,
+    int EligibleSlaClaims,
+    int SlaAchievedClaims,
+    int SlaBreachedClaims);
 
 public sealed record ManagementClaimsSlaReportResult(
     string? MarketCode,
@@ -98,16 +89,9 @@ public sealed record ManagementClaimsSlaReportResult(
     DateOnly? ToDate,
     int TargetDays,
     DateTimeOffset AsOfUtc,
-    int TotalOpenClaims,
-    int WithinTarget,
-    int Breached,
-    decimal BreachRatePercentage,
-    IReadOnlyList<ClaimSlaMarketResult> Markets);
-
-public sealed record ClaimsSlaReportData(
-    int TotalOpenClaims,
-    int WithinTarget,
-    int Breached,
-    IReadOnlyList<ClaimSlaMarketResult> Markets);
+    int EligibleClaims,
+    int AchievedClaims,
+    int BreachedClaims,
+    decimal AttainmentPercentage);
 
 public sealed record ManagementReportingOptions(int SlaTargetDays = 14);

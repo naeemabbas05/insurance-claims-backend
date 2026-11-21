@@ -101,6 +101,9 @@ public sealed class ClaimStaffOperationsTests
         Assert.Equal(1, workload.ByRole.Single().ActiveClaimCount);
         Assert.Equal(2, repository.SaveCount);
         Assert.Equal(2, eventOutbox.Events.Count(item => item is ClaimAssignedV1));
+        Assert.Equal(
+            ["ClaimSubmitted", "ClaimAssigned", "ClaimAssigned"],
+            claim.Notifications.Select(notification => notification.Category));
     }
 
     private static ClaimStaffOperationsService CreateService(

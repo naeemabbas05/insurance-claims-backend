@@ -35,6 +35,7 @@ public sealed class ManagementReportingController(
     }
 
     [HttpGet("aging")]
+    [HttpGet("~/api/v{version:apiVersion}/management/claim-aging")]
     [ProducesResponseType<ManagementClaimsAgingReportResult>(StatusCodes.Status200OK)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status400BadRequest)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status401Unauthorized)]
@@ -56,6 +57,7 @@ public sealed class ManagementReportingController(
     }
 
     [HttpGet("performance")]
+    [HttpGet("~/api/v{version:apiVersion}/management/performance")]
     [ProducesResponseType<ManagementClaimsPerformanceReportResult>(StatusCodes.Status200OK)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status400BadRequest)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status401Unauthorized)]
@@ -77,6 +79,7 @@ public sealed class ManagementReportingController(
     }
 
     [HttpGet("sla")]
+    [HttpGet("~/api/v{version:apiVersion}/management/sla")]
     [ProducesResponseType<ManagementClaimsSlaReportResult>(StatusCodes.Status200OK)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status400BadRequest)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status401Unauthorized)]

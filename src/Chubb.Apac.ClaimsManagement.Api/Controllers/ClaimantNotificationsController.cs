@@ -35,6 +35,7 @@ public sealed class ClaimantNotificationsController(
     }
 
     [HttpPut("{notificationId:guid}/read")]
+    [HttpPost("{notificationId:guid}/read")]
     [ProducesResponseType<ClaimantNotificationItem>(StatusCodes.Status200OK)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status403Forbidden)]

@@ -122,23 +122,38 @@ public sealed class ManagementClaimsReportingTests
 
         Assert.Equal(3, aging.TotalOpenClaims);
         Assert.Equal(Utc(2026, 11, 21), aging.AsOfUtc);
-        Assert.Equal(2, performance.TotalDecisions);
-        Assert.Equal(4.5m, Assert.Single(performance.Officers).AverageProcessingDays);
+        Assert.Equal(4, performance.TotalClaims);
+        Assert.Equal(2, performance.CompletedClaims);
+        Assert.Equal(2, performance.ClaimsPending);
+        Assert.Equal(5.4m, performance.AverageTurnaroundDays);
+        Assert.Equal(1, performance.ClaimsOlderThan30Days);
+        Assert.Equal(50m, performance.SlaAttainmentPercentage);
+        Assert.Equal(
+            [
+                new ClaimAgingBucket("0-7 days", 1),
+                new ClaimAgingBucket("8-14 days", 1),
+                new ClaimAgingBucket("15-30 days", 1),
+                new ClaimAgingBucket("31-60 days", 0),
+                new ClaimAgingBucket("Over 60 days", 0)
+            ],
+            aging.Aging);
         Assert.Equal(10, sla.TargetDays);
-        Assert.Equal(1, sla.Breached);
-        Assert.Equal(33.33m, sla.BreachRatePercentage);
+        Assert.Equal(2, sla.EligibleClaims);
+        Assert.Equal(1, sla.AchievedClaims);
+        Assert.Equal(1, sla.BreachedClaims);
+        Assert.Equal(50m, sla.AttainmentPercentage);
         Assert.All(
-            new[] { repository.AgingMarkets, repository.PerformanceMarkets, repository.SlaMarkets },
+            new[] { repository.AgingMarkets, repository.PerformanceMarkets },
             markets => Assert.Equal(["MY"], markets!.Select(market => market.Value)));
     }
 
     [Fact]
-    public async Task SlaReportUsesZeroBreachRateWhenNoClaimsAreInScope()
+    public async Task SlaAndPerformanceReportsUseZeroAttainmentWhenNoClaimsAreEligible()
     {
         var actor = CreateStaff(StaffRole.Approver, "MY");
         var repository = new FakeManagementClaimsReportRepository(actor, CreateReportData())
         {
-            SlaReport = new ClaimsSlaReportData(0, 0, 0, [])
+            PerformanceReport = new ClaimsPerformanceReportData(0, 0, 0, 0m, 0, 0, 0, 0)
         };
         var service = CreateService(repository);
 
@@ -146,9 +161,12 @@ public sealed class ManagementClaimsReportingTests
             new ManagementClaimsReportQuery(actor.Id, "MY"),
             CancellationToken.None);
 
-        Assert.Equal(0, report.TotalOpenClaims);
-        Assert.Equal(0m, report.BreachRatePercentage);
-        Assert.Empty(report.Markets);
+        Assert.Equal(0, report.EligibleClaims);
+        Assert.Equal(0, report.AttainmentPercentage);
+        var performance = await service.GetPerformanceReportAsync(
+            new ManagementClaimsReportQuery(actor.Id, "MY"),
+            CancellationToken.None);
+        Assert.Equal(0, performance.SlaAttainmentPercentage);
     }
 
     private static ManagementClaimsReportingService CreateService(
@@ -216,10 +234,8 @@ public sealed class ManagementClaimsReportingTests
 
         public IReadOnlyCollection<MarketCode>? PerformanceMarkets { get; private set; }
 
-        public IReadOnlyCollection<MarketCode>? SlaMarkets { get; private set; }
-
-        public ClaimsSlaReportData SlaReport { get; init; } =
-            new(3, 2, 1, [new ClaimSlaMarketResult("MY", 3, 2, 1, 33.33m)]);
+        public ClaimsPerformanceReportData PerformanceReport { get; init; } =
+            new(4, 2, 2, 5.4m, 1, 2, 1, 1);
 
         public Task<StaffUser?> FindStaffUserAsync(
             Guid staffUserId,
@@ -249,15 +265,11 @@ public sealed class ManagementClaimsReportingTests
             return Task.FromResult(new ClaimsAgingReportData(
                 3,
                 [
-                    new ClaimAgingMarketResult(
-                        "MY",
-                        3,
-                        [
-                            new ClaimAgingBucket("0-7 days", 1),
-                            new ClaimAgingBucket("8-14 days", 1),
-                            new ClaimAgingBucket("15-30 days", 1),
-                            new ClaimAgingBucket("31+ days", 0)
-                        ])
+                    new ClaimAgingBucket("0-7 days", 1),
+                    new ClaimAgingBucket("8-14 days", 1),
+                    new ClaimAgingBucket("15-30 days", 1),
+                    new ClaimAgingBucket("31-60 days", 0),
+                    new ClaimAgingBucket("Over 60 days", 0)
                 ]));
         }
 
@@ -265,24 +277,12 @@ public sealed class ManagementClaimsReportingTests
             IReadOnlyCollection<MarketCode> marketCodes,
             DateTimeOffset? fromDateUtc,
             DateTimeOffset? toDateExclusiveUtc,
-            CancellationToken cancellationToken)
-        {
-            PerformanceMarkets = marketCodes;
-            return Task.FromResult(new ClaimsPerformanceReportData(
-                2,
-                [new OfficerDecisionPerformance(Guid.NewGuid(), "Officer", 2, 1, 1, 4.5m)]));
-        }
-
-        public Task<ClaimsSlaReportData> GetSlaReportAsync(
-            IReadOnlyCollection<MarketCode> marketCodes,
-            DateTimeOffset? fromDateUtc,
-            DateTimeOffset? toDateExclusiveUtc,
             DateTimeOffset asOfUtc,
             int targetDays,
             CancellationToken cancellationToken)
         {
-            SlaMarkets = marketCodes;
-            return Task.FromResult(SlaReport);
+            PerformanceMarkets = marketCodes;
+            return Task.FromResult(PerformanceReport);
         }
     }
 }

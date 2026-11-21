@@ -73,7 +73,7 @@ public sealed class ClaimLifecycleService(
                 approved ? claim.ApprovedAmount?.Currency.Value : null,
                 approved
                     ? "Your claim has been approved."
-                    : "Your claim was not approved. Sign in or contact the claims team for assistance.",
+                    : "Please contact the claims team for an explanation of the decision.",
                 settlementStatus));
     }
 
@@ -507,8 +507,8 @@ public sealed class ClaimLifecycleService(
             ClaimStatus.Approved =>
                 ("ClaimApproved", "Claim approved", "Your claim has been approved."),
             ClaimStatus.Declined =>
-                ("ClaimDeclined", "Claim decision",
-                    "Your claim was not approved. Sign in or contact the claims team for assistance."),
+                ("ClaimRejected", "Claim decision",
+                    "Your claim was not approved. Please contact the claims team for an explanation."),
             ClaimStatus.Settled =>
                 ("ClaimSettled", "Settlement paid", "A settlement payment has been recorded for your claim."),
             _ => null

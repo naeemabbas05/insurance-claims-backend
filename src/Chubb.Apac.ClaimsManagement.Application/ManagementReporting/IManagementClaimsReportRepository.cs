@@ -24,12 +24,6 @@ public interface IManagementClaimsReportRepository
         IReadOnlyCollection<MarketCode> marketCodes,
         DateTimeOffset? fromDateUtc,
         DateTimeOffset? toDateExclusiveUtc,
-        CancellationToken cancellationToken);
-
-    Task<ClaimsSlaReportData> GetSlaReportAsync(
-        IReadOnlyCollection<MarketCode> marketCodes,
-        DateTimeOffset? fromDateUtc,
-        DateTimeOffset? toDateExclusiveUtc,
         DateTimeOffset asOfUtc,
         int targetDays,
         CancellationToken cancellationToken);

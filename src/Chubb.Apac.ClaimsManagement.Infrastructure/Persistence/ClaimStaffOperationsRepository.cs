@@ -22,6 +22,7 @@ public sealed class ClaimStaffOperationsRepository(ClaimsDbContext dbContext)
         dbContext.Claims
             .Include(claim => claim.Policy)
                 .ThenInclude(policy => policy.Market)
+            .Include(claim => claim.Claimants)
             .Include(claim => claim.Assignments)
                 .ThenInclude(assignment => assignment.StaffUser)
             .AsSplitQuery()

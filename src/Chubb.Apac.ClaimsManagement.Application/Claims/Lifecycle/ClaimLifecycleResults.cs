@@ -15,16 +15,16 @@ public sealed record ClaimStatusHistoryItem(
     DateTimeOffset ChangedAtUtc);
 
 public sealed record ClaimDecisionResult(
-    string ClaimReference,
+    string ClaimNumber,
     ClaimStatus Status,
     ClaimDecisionDetails? Decision);
 
 public sealed record ClaimDecisionDetails(
-    ClaimStatus Outcome,
-    DateTimeOffset DecidedAtUtc,
+    ClaimStatus DecisionType,
+    DateTimeOffset DecisionDate,
     decimal? ApprovedAmount,
-    string? CurrencyCode,
-    string CustomerMessage,
+    string? Currency,
+    string Reason,
     string? SettlementStatus);
 
 public sealed record ClaimInformationRequestItem(

@@ -195,109 +195,35 @@ public sealed class ManagementClaimsReportRepository(ClaimsDbContext dbContext)
                 claim.Status != ClaimStatus.Settled &&
                 claim.Status != ClaimStatus.Declined);
         var rows = await openClaims
-            .Select(claim => new
-            {
-                claim.Policy.MarketCode,
-                AgeDays = EF.Functions.DateDiffDay(claim.ReportedAtUtc, asOfUtc)
-            })
-            .GroupBy(item => new
-            {
-                item.MarketCode,
-                Bucket = item.AgeDays <= 7 ? 0 : item.AgeDays <= 14 ? 1 : item.AgeDays <= 30 ? 2 : 3
-            })
+            .Select(claim => EF.Functions.DateDiffDay(claim.ReportedAtUtc, asOfUtc))
+            .GroupBy(ageDays =>
+                ageDays <= 7 ? 0 :
+                ageDays <= 14 ? 1 :
+                ageDays <= 30 ? 2 :
+                ageDays <= 60 ? 3 : 4)
             .Select(group => new
             {
-                group.Key.MarketCode,
-                group.Key.Bucket,
+                Bucket = group.Key,
                 Count = group.Count()
             })
             .ToArrayAsync(cancellationToken);
 
-        var markets = rows
-            .GroupBy(item => item.MarketCode.Value)
-            .OrderBy(group => group.Key)
-            .Select(group =>
-            {
-                var counts = group.ToDictionary(item => item.Bucket, item => item.Count);
-                var buckets = new[]
-                {
-                    new ClaimAgingBucket("0-7 days", counts.GetValueOrDefault(0)),
-                    new ClaimAgingBucket("8-14 days", counts.GetValueOrDefault(1)),
-                    new ClaimAgingBucket("15-30 days", counts.GetValueOrDefault(2)),
-                    new ClaimAgingBucket("31+ days", counts.GetValueOrDefault(3))
-                };
-                return new ClaimAgingMarketResult(
-                    group.Key,
-                    buckets.Sum(bucket => bucket.ClaimCount),
-                    buckets);
-            })
-            .ToArray();
+        var counts = rows.ToDictionary(item => item.Bucket, item => item.Count);
+        var buckets = new[]
+        {
+            new ClaimAgingBucket("0-7 days", counts.GetValueOrDefault(0)),
+            new ClaimAgingBucket("8-14 days", counts.GetValueOrDefault(1)),
+            new ClaimAgingBucket("15-30 days", counts.GetValueOrDefault(2)),
+            new ClaimAgingBucket("31-60 days", counts.GetValueOrDefault(3)),
+            new ClaimAgingBucket("Over 60 days", counts.GetValueOrDefault(4))
+        };
 
         return new ClaimsAgingReportData(
-            markets.Sum(market => market.TotalOpenClaims),
-            markets);
+            buckets.Sum(bucket => bucket.Count),
+            buckets);
     }
 
     public async Task<ClaimsPerformanceReportData> GetPerformanceReportAsync(
-        IReadOnlyCollection<MarketCode> marketCodes,
-        DateTimeOffset? fromDateUtc,
-        DateTimeOffset? toDateExclusiveUtc,
-        CancellationToken cancellationToken)
-    {
-        var claims = dbContext.Claims
-            .AsNoTracking()
-            .Where(BuildMarketPredicate(marketCodes));
-        var decisions = claims.SelectMany(claim => claim.StatusHistory
-            .Where(history =>
-                (history.NewStatus == ClaimStatus.Approved || history.NewStatus == ClaimStatus.Declined) &&
-                history.ChangedByStaffUserId != null &&
-                (!fromDateUtc.HasValue || history.ChangedAtUtc >= fromDateUtc.Value) &&
-                (!toDateExclusiveUtc.HasValue || history.ChangedAtUtc < toDateExclusiveUtc.Value))
-            .Select(history => new
-            {
-                OfficerId = history.ChangedByStaffUserId!.Value,
-                history.NewStatus,
-                ProcessingDays = EF.Functions.DateDiffDay(claim.ReportedAtUtc, history.ChangedAtUtc)
-            }));
-        var grouped = await decisions
-            .GroupBy(item => item.OfficerId)
-            .Select(group => new
-            {
-                OfficerId = group.Key,
-                DecisionCount = group.Count(),
-                ApprovedCount = group.Count(item => item.NewStatus == ClaimStatus.Approved),
-                DeclinedCount = group.Count(item => item.NewStatus == ClaimStatus.Declined),
-                TotalProcessingDays = group.Sum(item => (long)item.ProcessingDays)
-            })
-            .OrderByDescending(item => item.DecisionCount)
-            .ThenBy(item => item.OfficerId)
-            .ToArrayAsync(cancellationToken);
-
-        var officerIds = grouped.Select(item => item.OfficerId).ToArray();
-        var officerNames = officerIds.Length == 0
-            ? new Dictionary<Guid, string>()
-            : (await dbContext.StaffUsers
-                .AsNoTracking()
-                .Where(staffUser => officerIds.Contains(staffUser.Id))
-                .Select(staffUser => new { staffUser.Id, staffUser.Name })
-                .ToArrayAsync(cancellationToken))
-                .ToDictionary(item => item.Id, item => item.Name.FullName);
-        var officers = grouped
-            .Select(item => new OfficerDecisionPerformance(
-                item.OfficerId,
-                officerNames[item.OfficerId],
-                item.DecisionCount,
-                item.ApprovedCount,
-                item.DeclinedCount,
-                item.DecisionCount == 0 ? 0m : (decimal)item.TotalProcessingDays / item.DecisionCount))
-            .ToArray();
-
-        return new ClaimsPerformanceReportData(
-            officers.Sum(officer => officer.DecisionCount),
-            officers);
-    }
-
-    public async Task<ClaimsSlaReportData> GetSlaReportAsync(
         IReadOnlyCollection<MarketCode> marketCodes,
         DateTimeOffset? fromDateUtc,
         DateTimeOffset? toDateExclusiveUtc,
@@ -305,49 +231,70 @@ public sealed class ManagementClaimsReportRepository(ClaimsDbContext dbContext)
         int targetDays,
         CancellationToken cancellationToken)
     {
-        var openClaims = BuildFilteredClaimsQuery(marketCodes, fromDateUtc, toDateExclusiveUtc)
-            .Where(claim =>
-                claim.Status != ClaimStatus.Closed &&
-                claim.Status != ClaimStatus.Settled &&
-                claim.Status != ClaimStatus.Declined);
-        var rows = await openClaims
+        var claims = await BuildFilteredClaimsQuery(marketCodes, fromDateUtc, toDateExclusiveUtc)
             .Select(claim => new
             {
-                claim.Policy.MarketCode,
-                AgeDays = EF.Functions.DateDiffDay(claim.ReportedAtUtc, asOfUtc)
-            })
-            .GroupBy(item => item.MarketCode)
-            .Select(group => new
-            {
-                MarketCode = group.Key,
-                Total = group.Count(),
-                WithinTarget = group.Count(item => item.AgeDays <= targetDays)
+                claim.Status,
+                claim.ReportedAtUtc,
+                DecisionAtUtc = claim.StatusHistory
+                    .Where(history =>
+                        history.NewStatus == ClaimStatus.Approved ||
+                        history.NewStatus == ClaimStatus.Declined)
+                    .OrderByDescending(history => history.ChangedAtUtc)
+                    .ThenByDescending(history => history.Id)
+                    .Select(history => (DateTimeOffset?)history.ChangedAtUtc)
+                    .FirstOrDefault(),
+                LatestReviewAtUtc = claim.StatusHistory
+                    .Where(history => history.NewStatus == ClaimStatus.UnderReview)
+                    .Select(history => (DateTimeOffset?)history.ChangedAtUtc)
+                    .Max()
             })
             .ToArrayAsync(cancellationToken);
-
-        var markets = rows
-            .OrderBy(item => item.MarketCode)
-            .Select(item =>
+        var completedClaims = claims
+            .Where(claim =>
+                IsFinalStatus(claim.Status) &&
+                claim.DecisionAtUtc.HasValue &&
+                claim.DecisionAtUtc.Value <= asOfUtc &&
+                (!claim.LatestReviewAtUtc.HasValue ||
+                 claim.DecisionAtUtc.Value >= claim.LatestReviewAtUtc.Value))
+            .Select(claim => new
             {
-                var breached = item.Total - item.WithinTarget;
-                var breachRate = item.Total == 0
-                    ? 0m
-                    : decimal.Round((decimal)breached / item.Total * 100m, 2);
-                return new ClaimSlaMarketResult(
-                    item.MarketCode.Value,
-                    item.Total,
-                    item.WithinTarget,
-                    breached,
-                    breachRate);
+                TurnaroundDays = GetTurnaroundDays(claim.ReportedAtUtc, claim.DecisionAtUtc!.Value)
             })
             .ToArray();
+        var openStatuses = claims
+            .Where(claim => !IsFinalStatus(claim.Status))
+            .ToArray();
+        var olderThan30Days = openStatuses.Count(claim =>
+            claim.ReportedAtUtc < asOfUtc.AddDays(-30));
+        var averageTurnaroundDays = completedClaims.Length == 0
+            ? 0m
+            : decimal.Round(
+                completedClaims.Sum(claim => claim.TurnaroundDays) / completedClaims.Length,
+                1);
+        var achieved = completedClaims.Count(claim => claim.TurnaroundDays <= targetDays);
 
-        return new ClaimsSlaReportData(
-            markets.Sum(market => market.TotalOpenClaims),
-            markets.Sum(market => market.WithinTarget),
-            markets.Sum(market => market.Breached),
-            markets);
+        return new ClaimsPerformanceReportData(
+            claims.Length,
+            completedClaims.Length,
+            claims.Length - completedClaims.Length,
+            averageTurnaroundDays,
+            olderThan30Days,
+            completedClaims.Length,
+            achieved,
+            completedClaims.Length - achieved);
     }
+
+    private static bool IsFinalStatus(ClaimStatus status) =>
+        status is ClaimStatus.Approved or
+            ClaimStatus.Declined or
+            ClaimStatus.Settled or
+            ClaimStatus.Closed;
+
+    private static decimal GetTurnaroundDays(
+        DateTimeOffset reportedAtUtc,
+        DateTimeOffset decisionAtUtc) =>
+        (decimal)(decisionAtUtc - reportedAtUtc).Ticks / TimeSpan.TicksPerDay;
 
     private IQueryable<Claim> BuildFilteredClaimsQuery(
         IReadOnlyCollection<MarketCode> marketCodes,

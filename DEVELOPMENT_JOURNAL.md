@@ -54,3 +54,25 @@ This entry is a retrospective based on user messages available in the conversati
 ## Verification
 
 The baseline solution build completed with 0 warnings and 0 errors. At that point, with the local SQL Server integration connection configured, all 28 tests passed: 19 Application, 8 Domain, and 1 Infrastructure integration test. For this follow-up, the full solution test suite passed 31 tests: 22 Application, 8 Domain, and 1 SQL Server integration test. The API health endpoint returned HTTP 200 in a local startup smoke test.
+
+## Assessment contract alignment — 2026-11-21
+
+This entry records the latest user-provided assessment requirements and the changes made in response. It does not claim that the user has reviewed or accepted these uncommitted changes.
+
+### Prompt, recommendations, and decisions
+
+- The user supplied specific management-report routes and output requirements, including aging buckets through over 60 days, turnaround and SLA calculations, claimant notification read behavior, claimant decision field names, and notifications for claim assignment. The user also asked for regression coverage and an honest working journal.
+- I compared those requirements with the existing reporting and notification code and recommended extending the existing application services, repositories, and controllers rather than introducing parallel modules or changing the architecture.
+- I retained the existing report routes as aliases and added the requested top-level management routes. This preserves current callers while exposing the requested paths.
+- I changed the aging output to five flat buckets (0–7, 8–14, 15–30, 31–60, and over 60 days). Declined, settled, and closed claims are excluded; approved claims awaiting settlement remain open for aging. SQL Server `DateDiffDay` counts calendar-day boundaries, and the README now states that precisely.
+- I defined turnaround as elapsed UTC duration from submission to a recorded approval/decline decision. A claim reopened after that decision remains pending until it receives a later decision. SLA attainment is achieved completed claims divided by eligible completed claims; zero eligible claims yields zero.
+- I added claimant notifications on assignment/reassignment, added the POST notification-read route while retaining PUT, and aligned claimant decision and notification response field names with the requested contract. Internal staff-entered decision reasons remain unexposed.
+- The previous follow-up implementation's single 31+ aging bucket and earlier performance response did not match this more specific contract; I revised the implementation and tests rather than preserving that earlier shape.
+
+### Validation and limitations
+
+- Added SQL integration assertions for all five aging buckets at their boundary ages, performance and SLA results (including a 15-day decision against the illustrative 14-day target), and assignment-generated notifications. Updated application tests for the revised reporting and notification contracts.
+- `dotnet build Chubb.Apac.ClaimsManagement.sln --no-restore` succeeded with 0 warnings and 0 errors.
+- `dotnet test Chubb.Apac.ClaimsManagement.sln --no-build`, with the isolated local SQL Server test connection configured, passed all 31 tests: 8 Domain, 22 Application, and 1 SQL integration test.
+- Started the API locally and fetched its Swagger document successfully (HTTP 200); it listed the requested `/api/v1/management/claim-aging`, `/performance`, `/sla`, and claimant notification POST-read routes.
+- No migration was needed because this follow-up changes API/report behavior and uses existing notification persistence. The Angular frontend called for by the assessment remains outside this backend follow-up.
