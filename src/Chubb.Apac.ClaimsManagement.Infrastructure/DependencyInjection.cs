@@ -13,9 +13,9 @@ public static class DependencyInjection
     {
         var connectionString = configuration.GetConnectionString("ClaimsDatabase")
             ?? throw new InvalidOperationException(
-                "Connection string 'ClaimsDatabase' is not configured.");
+                "Connection string 'ClaimsDatabase' is not configured. Set the ConnectionStrings__ClaimsDatabase environment variable.");
 
-        services.AddDbContext<ClaimsManagementDbContext>(options =>
+        services.AddDbContext<ClaimsDbContext>(options =>
             options.UseSqlServer(connectionString));
 
         return services;

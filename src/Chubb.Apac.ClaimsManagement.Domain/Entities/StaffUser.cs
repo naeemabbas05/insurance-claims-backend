@@ -6,7 +6,7 @@ namespace Chubb.Apac.ClaimsManagement.Domain.Entities;
 
 public sealed class StaffUser : Entity
 {
-    private readonly List<MarketCode> _markets = [];
+    private readonly List<MarketDefinition> _markets = [];
 
     private StaffUser()
     {
@@ -18,7 +18,7 @@ public sealed class StaffUser : Entity
         PersonName name,
         EmailAddress email,
         StaffRole role,
-        IEnumerable<MarketCode> markets,
+        IEnumerable<MarketDefinition> markets,
         DateTimeOffset createdAtUtc)
     {
         ArgumentNullException.ThrowIfNull(name);
@@ -38,7 +38,7 @@ public sealed class StaffUser : Entity
 
     public StaffRole Role { get; private set; }
 
-    public IReadOnlyCollection<MarketCode> Markets => _markets.AsReadOnly();
+    public IReadOnlyCollection<MarketDefinition> Markets => _markets.AsReadOnly();
 
     public DateTimeOffset CreatedAtUtc { get; private set; }
 
@@ -57,18 +57,17 @@ public sealed class StaffUser : Entity
         ArgumentNullException.ThrowIfNull(markets);
         ArgumentNullException.ThrowIfNull(marketCatalog);
 
-        var configuredMarkets = markets.Distinct().ToArray();
+        var configuredMarkets = markets
+            .Distinct()
+            .Select(marketCatalog.Get)
+            .ToArray();
         DomainRule.Require(configuredMarkets.Length > 0, "Staff user must be assigned to at least one market.");
-        foreach (var market in configuredMarkets)
-        {
-            marketCatalog.Get(market);
-        }
 
         return new StaffUser(name, email, role, configuredMarkets, createdAtUtc);
     }
 
     public bool CanWorkIn(MarketCode market) =>
-        IsActive && _markets.Contains(market);
+        IsActive && _markets.Any(configuredMarket => configuredMarket.Code == market);
 
     public bool CanPerform(StaffRole requiredRole) =>
         IsActive && (Role == StaffRole.Administrator || Role == requiredRole);
