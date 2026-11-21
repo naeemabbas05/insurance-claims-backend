@@ -12,6 +12,7 @@ public sealed class Policy : Entity
     {
         Number = null!;
         Market = null!;
+        MarketCode = null!;
         Type = default;
         PolicyHolderName = null!;
         CoveragePeriod = null!;
@@ -40,6 +41,7 @@ public sealed class Policy : Entity
 
         Number = number;
         Market = market;
+        MarketCode = market.Code;
         Type = type;
         PolicyHolderName = policyHolderName;
         CoveragePeriod = coveragePeriod;
@@ -51,6 +53,8 @@ public sealed class Policy : Entity
     public PolicyNumber Number { get; private set; }
 
     public MarketDefinition Market { get; private set; }
+
+    public MarketCode MarketCode { get; private set; }
 
     public PolicyType Type { get; private set; }
 

@@ -32,7 +32,22 @@ dotnet run --project src\Chubb.Apac.ClaimsManagement.Api
 
 The initial readiness check reports API process health only; SQL connectivity is not checked because no database-backed module is implemented yet.
 
-Set `ConnectionStrings__ClaimsDatabase` in the environment to configure another SQL Server connection string. The API also reads the standard ASP.NET Core configuration sources, including `appsettings.{Environment}.json`, environment variables, and command-line configuration.
+The infrastructure layer reads `ConnectionStrings__ClaimsDatabase` from standard ASP.NET Core configuration. Set the environment variable to override the Development LocalDB value:
+
+```powershell
+$env:ConnectionStrings__ClaimsDatabase = "Server=.\SQLEXPRESS;Database=ChubbClaimsManagement;Trusted_Connection=True;TrustServerCertificate=True;Encrypt=True"
+```
+
+## SQL Server persistence
+
+EF Core migrations are stored with Infrastructure. Restore the repository-pinned EF tool and apply migrations with a configured SQL Server connection:
+
+```powershell
+dotnet tool restore
+dotnet ef database update --project src\Chubb.Apac.ClaimsManagement.Infrastructure --startup-project src\Chubb.Apac.ClaimsManagement.Api --context ClaimsDbContext
+```
+
+The initial migration creates the claims schema, rowversion concurrency columns, indexes and foreign keys, and seeds six APAC markets, sample Motor and Property policies, and sample staff users. No repositories are added yet; `ClaimsDbContext` is the persistence boundary until use cases require repository abstractions.
 
 ## Build
 

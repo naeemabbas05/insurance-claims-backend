@@ -4,6 +4,13 @@ namespace Chubb.Apac.ClaimsManagement.Domain.ValueObjects;
 
 public sealed record MarketDefinition
 {
+    private MarketDefinition()
+    {
+        Code = null!;
+        Name = null!;
+        DefaultCurrency = null!;
+    }
+
     private MarketDefinition(MarketCode code, string name, CurrencyCode defaultCurrency)
     {
         Code = code;
@@ -11,11 +18,11 @@ public sealed record MarketDefinition
         DefaultCurrency = defaultCurrency;
     }
 
-    public MarketCode Code { get; }
+    public MarketCode Code { get; private set; }
 
-    public string Name { get; }
+    public string Name { get; private set; }
 
-    public CurrencyCode DefaultCurrency { get; }
+    public CurrencyCode DefaultCurrency { get; private set; }
 
     public static MarketDefinition Create(string code, string name, string defaultCurrency) =>
         new(

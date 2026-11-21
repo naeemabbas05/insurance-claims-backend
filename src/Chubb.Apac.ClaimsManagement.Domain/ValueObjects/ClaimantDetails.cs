@@ -5,6 +5,12 @@ namespace Chubb.Apac.ClaimsManagement.Domain.ValueObjects;
 
 public sealed record ClaimantDetails
 {
+    private ClaimantDetails()
+    {
+        Name = null!;
+        Contact = null!;
+    }
+
     private ClaimantDetails(ClaimantRole role, PersonName name, ContactDetails contact)
     {
         Role = role;
@@ -12,11 +18,11 @@ public sealed record ClaimantDetails
         Contact = contact;
     }
 
-    public ClaimantRole Role { get; }
+    public ClaimantRole Role { get; private set; }
 
-    public PersonName Name { get; }
+    public PersonName Name { get; private set; }
 
-    public ContactDetails Contact { get; }
+    public ContactDetails Contact { get; private set; }
 
     public static ClaimantDetails Create(
         ClaimantRole role,
