@@ -2,6 +2,15 @@ namespace Chubb.Apac.ClaimsManagement.Application.Claims.Lifecycle;
 
 public interface IClaimLifecycleService
 {
+    Task<ClaimDecisionResult> GetDecisionAsync(
+        string claimReference,
+        CancellationToken cancellationToken);
+
+    Task<IReadOnlyList<ClaimInformationRequestItem>> GetInformationRequestsAsync(
+        string claimReference,
+        Guid claimantId,
+        CancellationToken cancellationToken);
+
     Task<IReadOnlyList<ClaimStatusHistoryItem>> GetStatusHistoryAsync(
         string claimReference,
         CancellationToken cancellationToken);

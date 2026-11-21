@@ -144,6 +144,7 @@ public sealed class ClaimStaffOperationsService(
             command.Role!.Value,
             actor,
             assignedAtUtc);
+        AddAssignmentNotifications(claim, assignment.Id, assignedAtUtc);
         EnqueueClaimAssignedEvent(claim, assignment, assignedAtUtc);
         await repository.SaveChangesAsync(cancellationToken);
         return ToAssignmentResult(claim, assignment, actor.Id);
@@ -170,6 +171,7 @@ public sealed class ClaimStaffOperationsService(
             newOfficer,
             actor,
             assignedAtUtc);
+        AddAssignmentNotifications(claim, assignment.Id, assignedAtUtc);
         EnqueueClaimAssignedEvent(claim, assignment, assignedAtUtc);
         await repository.SaveChangesAsync(cancellationToken);
         return ToAssignmentResult(claim, assignment, actor.Id);
@@ -306,6 +308,23 @@ public sealed class ClaimStaffOperationsService(
             assignment.Id,
             assignment.StaffUserId,
             assignment.Role.ToString()));
+
+    private static void AddAssignmentNotifications(
+        Claim claim,
+        Guid assignmentId,
+        DateTimeOffset occurredAtUtc)
+    {
+        foreach (var claimant in claim.Claimants)
+        {
+            claim.AddClaimantNotification(
+                claimant,
+                "ClaimAssigned",
+                "Your claim is being processed",
+                "A member of our claims team has been assigned to your claim.",
+                occurredAtUtc,
+                $"assignment:{assignmentId}:{claimant.Id}");
+        }
+    }
 
     private static int GetSkip(int page, int pageSize) => checked((page - 1) * pageSize);
 }

@@ -29,6 +29,8 @@ public sealed class ClaimsDbContext(DbContextOptions<ClaimsDbContext> options) :
 
     public DbSet<ClaimSettlement> ClaimSettlements => Set<ClaimSettlement>();
 
+    public DbSet<ClaimantNotification> ClaimantNotifications => Set<ClaimantNotification>();
+
     public DbSet<StaffUser> StaffUsers => Set<StaffUser>();
 
     public DbSet<ClaimSubmissionIdempotencyRecord> ClaimSubmissionIdempotencyRecords =>
@@ -83,5 +85,6 @@ public sealed class ClaimsDbContext(DbContextOptions<ClaimsDbContext> options) :
             StatusHistoryEntity or
             ClaimAuditEntry or
             ClaimInformationRequest or
-            ClaimSettlement;
+            ClaimSettlement or
+            ClaimantNotification;
 }

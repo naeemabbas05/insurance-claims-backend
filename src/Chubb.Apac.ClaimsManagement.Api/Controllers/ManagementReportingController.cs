@@ -34,6 +34,72 @@ public sealed class ManagementReportingController(
             cancellationToken));
     }
 
+    [HttpGet("aging")]
+    [HttpGet("~/api/v{version:apiVersion}/management/claim-aging")]
+    [ProducesResponseType<ManagementClaimsAgingReportResult>(StatusCodes.Status200OK)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status403Forbidden)]
+    public async Task<ActionResult<ManagementClaimsAgingReportResult>> GetAgingReport(
+        [FromQuery] string? marketCode,
+        [FromQuery] DateOnly? fromDate,
+        [FromQuery] DateOnly? toDate,
+        CancellationToken cancellationToken)
+    {
+        if (!TryGetStaffUserId(out var actorStaffUserId))
+        {
+            return Unauthorized();
+        }
+
+        return Ok(await reportingService.GetAgingReportAsync(
+            new ManagementClaimsReportQuery(actorStaffUserId, marketCode, fromDate, toDate),
+            cancellationToken));
+    }
+
+    [HttpGet("performance")]
+    [HttpGet("~/api/v{version:apiVersion}/management/performance")]
+    [ProducesResponseType<ManagementClaimsPerformanceReportResult>(StatusCodes.Status200OK)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status403Forbidden)]
+    public async Task<ActionResult<ManagementClaimsPerformanceReportResult>> GetPerformanceReport(
+        [FromQuery] string? marketCode,
+        [FromQuery] DateOnly? fromDate,
+        [FromQuery] DateOnly? toDate,
+        CancellationToken cancellationToken)
+    {
+        if (!TryGetStaffUserId(out var actorStaffUserId))
+        {
+            return Unauthorized();
+        }
+
+        return Ok(await reportingService.GetPerformanceReportAsync(
+            new ManagementClaimsReportQuery(actorStaffUserId, marketCode, fromDate, toDate),
+            cancellationToken));
+    }
+
+    [HttpGet("sla")]
+    [HttpGet("~/api/v{version:apiVersion}/management/sla")]
+    [ProducesResponseType<ManagementClaimsSlaReportResult>(StatusCodes.Status200OK)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status403Forbidden)]
+    public async Task<ActionResult<ManagementClaimsSlaReportResult>> GetSlaReport(
+        [FromQuery] string? marketCode,
+        [FromQuery] DateOnly? fromDate,
+        [FromQuery] DateOnly? toDate,
+        CancellationToken cancellationToken)
+    {
+        if (!TryGetStaffUserId(out var actorStaffUserId))
+        {
+            return Unauthorized();
+        }
+
+        return Ok(await reportingService.GetSlaReportAsync(
+            new ManagementClaimsReportQuery(actorStaffUserId, marketCode, fromDate, toDate),
+            cancellationToken));
+    }
+
     private bool TryGetStaffUserId(out Guid staffUserId)
     {
         staffUserId = Guid.Empty;

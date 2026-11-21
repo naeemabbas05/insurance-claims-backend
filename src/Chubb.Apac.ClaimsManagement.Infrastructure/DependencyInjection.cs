@@ -6,6 +6,7 @@ using Chubb.Apac.ClaimsManagement.Application.ManagementReporting;
 using Chubb.Apac.ClaimsManagement.Application.Integration;
 using Chubb.Apac.ClaimsManagement.Infrastructure.Integration;
 using Chubb.Apac.ClaimsManagement.Application.Security;
+using Chubb.Apac.ClaimsManagement.Application.ClaimantNotifications;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -29,6 +30,7 @@ public static class DependencyInjection
         services.AddScoped<IClaimStaffOperationsRepository, ClaimStaffOperationsRepository>();
         services.AddScoped<IManagementClaimsReportRepository, ManagementClaimsReportRepository>();
         services.AddScoped<IClaimAccessRepository, ClaimAccessRepository>();
+        services.AddScoped<IClaimantNotificationRepository, ClaimantNotificationRepository>();
         services.AddScoped<IClaimIntegrationEventOutbox, EfCoreClaimIntegrationEventOutbox>();
         services.AddScoped<IClaimOutboxStore, ClaimOutboxStore>();
         services.Configure<KafkaOptions>(options =>

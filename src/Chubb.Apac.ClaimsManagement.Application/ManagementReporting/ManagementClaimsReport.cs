@@ -46,3 +46,52 @@ public sealed record ManagementClaimsReportData(
     IReadOnlyList<CurrencyAmountTotal> ApprovedAmount,
     IReadOnlyList<CurrencyAmountTotal> ApprovedButUnpaidLiability,
     IReadOnlyList<CurrencyAmountTotal> SettledAmount);
+
+public sealed record ClaimAgingBucket(string Bucket, int Count);
+
+public sealed record ManagementClaimsAgingReportResult(
+    string? MarketCode,
+    DateOnly? FromDate,
+    DateOnly? ToDate,
+    DateTimeOffset AsOfUtc,
+    int TotalOpenClaims,
+    IReadOnlyList<ClaimAgingBucket> Aging);
+
+public sealed record ClaimsAgingReportData(
+    int TotalOpenClaims,
+    IReadOnlyList<ClaimAgingBucket> Aging);
+
+public sealed record ManagementClaimsPerformanceReportResult(
+    string? MarketCode,
+    DateOnly? FromDate,
+    DateOnly? ToDate,
+    DateTimeOffset AsOfUtc,
+    int TotalClaims,
+    int CompletedClaims,
+    int ClaimsPending,
+    decimal AverageTurnaroundDays,
+    int ClaimsOlderThan30Days,
+    decimal SlaAttainmentPercentage);
+
+public sealed record ClaimsPerformanceReportData(
+    int TotalClaims,
+    int CompletedClaims,
+    int ClaimsPending,
+    decimal AverageTurnaroundDays,
+    int ClaimsOlderThan30Days,
+    int EligibleSlaClaims,
+    int SlaAchievedClaims,
+    int SlaBreachedClaims);
+
+public sealed record ManagementClaimsSlaReportResult(
+    string? MarketCode,
+    DateOnly? FromDate,
+    DateOnly? ToDate,
+    int TargetDays,
+    DateTimeOffset AsOfUtc,
+    int EligibleClaims,
+    int AchievedClaims,
+    int BreachedClaims,
+    decimal AttainmentPercentage);
+
+public sealed record ManagementReportingOptions(int SlaTargetDays = 14);

@@ -14,6 +14,28 @@ public sealed record ClaimStatusHistoryItem(
     ClaimStatus NewStatus,
     DateTimeOffset ChangedAtUtc);
 
+public sealed record ClaimDecisionResult(
+    string ClaimNumber,
+    ClaimStatus Status,
+    ClaimDecisionDetails? Decision);
+
+public sealed record ClaimDecisionDetails(
+    ClaimStatus DecisionType,
+    DateTimeOffset DecisionDate,
+    decimal? ApprovedAmount,
+    string? Currency,
+    string Reason,
+    string? SettlementStatus);
+
+public sealed record ClaimInformationRequestItem(
+    Guid RequestId,
+    string Question,
+    DateTimeOffset RequestedAtUtc,
+    DateTimeOffset DueAtUtc,
+    InformationRequestStatus Status,
+    string? Response,
+    DateTimeOffset? RespondedAtUtc);
+
 public sealed record ClaimAuditHistoryItem(
     string Action,
     DateTimeOffset OccurredAtUtc,

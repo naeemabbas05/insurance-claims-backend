@@ -104,9 +104,78 @@ public sealed class ManagementClaimsReportingTests
         Assert.Contains(dateResult.Errors, error => error.PropertyName == nameof(ManagementClaimsReportQuery.ToDate));
     }
 
+    [Fact]
+    public async Task AdditionalReportsUseAuthorizedMarketsAndConfiguredSlaTarget()
+    {
+        var actor = CreateStaff(StaffRole.Approver, "MY", "SG");
+        var repository = new FakeManagementClaimsReportRepository(actor, CreateReportData());
+        var service = CreateService(repository);
+        var query = new ManagementClaimsReportQuery(
+            actor.Id,
+            "MY",
+            new DateOnly(2026, 11, 1),
+            new DateOnly(2026, 11, 21));
+
+        var aging = await service.GetAgingReportAsync(query, CancellationToken.None);
+        var performance = await service.GetPerformanceReportAsync(query, CancellationToken.None);
+        var sla = await service.GetSlaReportAsync(query, CancellationToken.None);
+
+        Assert.Equal(3, aging.TotalOpenClaims);
+        Assert.Equal(Utc(2026, 11, 21), aging.AsOfUtc);
+        Assert.Equal(4, performance.TotalClaims);
+        Assert.Equal(2, performance.CompletedClaims);
+        Assert.Equal(2, performance.ClaimsPending);
+        Assert.Equal(5.4m, performance.AverageTurnaroundDays);
+        Assert.Equal(1, performance.ClaimsOlderThan30Days);
+        Assert.Equal(50m, performance.SlaAttainmentPercentage);
+        Assert.Equal(
+            [
+                new ClaimAgingBucket("0-7 days", 1),
+                new ClaimAgingBucket("8-14 days", 1),
+                new ClaimAgingBucket("15-30 days", 1),
+                new ClaimAgingBucket("31-60 days", 0),
+                new ClaimAgingBucket("Over 60 days", 0)
+            ],
+            aging.Aging);
+        Assert.Equal(10, sla.TargetDays);
+        Assert.Equal(2, sla.EligibleClaims);
+        Assert.Equal(1, sla.AchievedClaims);
+        Assert.Equal(1, sla.BreachedClaims);
+        Assert.Equal(50m, sla.AttainmentPercentage);
+        Assert.All(
+            new[] { repository.AgingMarkets, repository.PerformanceMarkets },
+            markets => Assert.Equal(["MY"], markets!.Select(market => market.Value)));
+    }
+
+    [Fact]
+    public async Task SlaAndPerformanceReportsUseZeroAttainmentWhenNoClaimsAreEligible()
+    {
+        var actor = CreateStaff(StaffRole.Approver, "MY");
+        var repository = new FakeManagementClaimsReportRepository(actor, CreateReportData())
+        {
+            PerformanceReport = new ClaimsPerformanceReportData(0, 0, 0, 0m, 0, 0, 0, 0)
+        };
+        var service = CreateService(repository);
+
+        var report = await service.GetSlaReportAsync(
+            new ManagementClaimsReportQuery(actor.Id, "MY"),
+            CancellationToken.None);
+
+        Assert.Equal(0, report.EligibleClaims);
+        Assert.Equal(0, report.AttainmentPercentage);
+        var performance = await service.GetPerformanceReportAsync(
+            new ManagementClaimsReportQuery(actor.Id, "MY"),
+            CancellationToken.None);
+        Assert.Equal(0, performance.SlaAttainmentPercentage);
+    }
+
     private static ManagementClaimsReportingService CreateService(
         IManagementClaimsReportRepository repository) =>
-        new(repository, new ManagementClaimsReportValidator());
+        new(
+            repository,
+            new ManagementClaimsReportValidator(),
+            new ManagementReportingOptions(10),
+            new FixedTimeProvider(Now));
 
     private static ManagementClaimsReportData CreateReportData() =>
         new(
@@ -146,6 +215,11 @@ public sealed class ManagementClaimsReportingTests
     private static DateTimeOffset Utc(int year, int month, int day) =>
         new(year, month, day, 0, 0, 0, TimeSpan.Zero);
 
+    private sealed class FixedTimeProvider(DateTimeOffset utcNow) : TimeProvider
+    {
+        public override DateTimeOffset GetUtcNow() => utcNow;
+    }
+
     private sealed class FakeManagementClaimsReportRepository(
         StaffUser staffUser,
         ManagementClaimsReportData report) : IManagementClaimsReportRepository
@@ -155,6 +229,13 @@ public sealed class ManagementClaimsReportingTests
         public DateTimeOffset? FromDateUtc { get; private set; }
 
         public DateTimeOffset? ToDateExclusiveUtc { get; private set; }
+
+        public IReadOnlyCollection<MarketCode>? AgingMarkets { get; private set; }
+
+        public IReadOnlyCollection<MarketCode>? PerformanceMarkets { get; private set; }
+
+        public ClaimsPerformanceReportData PerformanceReport { get; init; } =
+            new(4, 2, 2, 5.4m, 1, 2, 1, 1);
 
         public Task<StaffUser?> FindStaffUserAsync(
             Guid staffUserId,
@@ -171,6 +252,37 @@ public sealed class ManagementClaimsReportingTests
             FromDateUtc = fromDateUtc;
             ToDateExclusiveUtc = toDateExclusiveUtc;
             return Task.FromResult(report);
+        }
+
+        public Task<ClaimsAgingReportData> GetAgingReportAsync(
+            IReadOnlyCollection<MarketCode> marketCodes,
+            DateTimeOffset? fromDateUtc,
+            DateTimeOffset? toDateExclusiveUtc,
+            DateTimeOffset asOfUtc,
+            CancellationToken cancellationToken)
+        {
+            AgingMarkets = marketCodes;
+            return Task.FromResult(new ClaimsAgingReportData(
+                3,
+                [
+                    new ClaimAgingBucket("0-7 days", 1),
+                    new ClaimAgingBucket("8-14 days", 1),
+                    new ClaimAgingBucket("15-30 days", 1),
+                    new ClaimAgingBucket("31-60 days", 0),
+                    new ClaimAgingBucket("Over 60 days", 0)
+                ]));
+        }
+
+        public Task<ClaimsPerformanceReportData> GetPerformanceReportAsync(
+            IReadOnlyCollection<MarketCode> marketCodes,
+            DateTimeOffset? fromDateUtc,
+            DateTimeOffset? toDateExclusiveUtc,
+            DateTimeOffset asOfUtc,
+            int targetDays,
+            CancellationToken cancellationToken)
+        {
+            PerformanceMarkets = marketCodes;
+            return Task.FromResult(PerformanceReport);
         }
     }
 }
