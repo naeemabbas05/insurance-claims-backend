@@ -67,7 +67,7 @@ public sealed class ClaimDomainTests
 
         claim.ChangeStatus(ClaimStatus.UnderReview, handler, "Review started.", Reported.AddDays(1));
         Assert.Throws<DomainRuleViolationException>(() =>
-            claim.ChangeStatus(ClaimStatus.Approved, approver, "Approve.", Reported.AddDays(2)));
+            claim.Approve(approver, Money.Create(800m, "MYR"), "Approve.", Reported.AddDays(2)));
 
         claim.RecordAssessment(
             assessor,
@@ -77,7 +77,10 @@ public sealed class ClaimDomainTests
             Reported.AddDays(3));
         Assert.Equal(ClaimStatus.AssessmentInProgress, claim.Status);
 
-        claim.ChangeStatus(ClaimStatus.Approved, approver, "Coverage confirmed.", Reported.AddDays(4));
+        Assert.Throws<DomainRuleViolationException>(() =>
+            claim.Approve(approver, Money.Create(800.01m, "MYR"), "Amount exceeds recommendation.", Reported.AddDays(4)));
+        Assert.Null(claim.ApprovedAmount);
+        claim.Approve(approver, Money.Create(800m, "MYR"), "Coverage confirmed.", Reported.AddDays(4));
         Assert.Throws<DomainRuleViolationException>(() =>
             claim.ProposeSettlement(
                 claim.Claimants.Single(),
@@ -98,6 +101,32 @@ public sealed class ClaimDomainTests
         Assert.Equal(SettlementStatus.Paid, settlement.Status);
         Assert.Equal(ClaimStatus.Settled, claim.Status);
         Assert.Equal(ClaimStatus.Settled, claim.StatusHistory.Last().NewStatus);
+        Assert.Equal(800m, claim.ApprovedAmount?.Amount);
+        Assert.Throws<DomainRuleViolationException>(() =>
+            claim.Reject(approver, "Attempt to reject settled claim.", Reported.AddDays(8)));
+        Assert.Contains(claim.AuditHistory, entry => entry.Action == "SettlementPaid");
+    }
+
+    [Fact]
+    public void RejectionRequiresAReasonAndIsRecordedInAuditHistory()
+    {
+        var claim = CreateClaim(CreatePolicy(PolicyType.Motor), ClaimType.Motor);
+        var handler = CreateStaff(StaffRole.ClaimsHandler, "MY");
+        var approver = CreateStaff(StaffRole.Approver, "MY");
+        var assessor = CreateStaff(StaffRole.Assessor, "MY");
+        claim.ChangeStatus(ClaimStatus.UnderReview, handler, "Review started.", Reported.AddDays(1));
+
+        Assert.Throws<DomainRuleViolationException>(() =>
+            claim.Reject(approver, " ", Reported.AddDays(2)));
+        Assert.Throws<DomainAuthorizationException>(() =>
+            claim.Reject(assessor, "Not authorized.", Reported.AddDays(2)));
+
+        claim.Reject(approver, "The reported loss is not covered.", Reported.AddDays(2));
+
+        Assert.Equal(ClaimStatus.Declined, claim.Status);
+        Assert.Equal("The reported loss is not covered.", claim.StatusHistory.Last().Reason);
+        Assert.Contains(claim.AuditHistory, entry =>
+            entry.Action == "ClaimRejected" && entry.Details == "The reported loss is not covered.");
     }
 
     [Fact]
@@ -146,7 +175,7 @@ public sealed class ClaimDomainTests
         var claim = CreateClaim(CreatePolicy(PolicyType.Motor), ClaimType.Motor);
         var indonesiaHandler = CreateStaff(StaffRole.ClaimsHandler, "ID");
 
-        Assert.Throws<DomainRuleViolationException>(() =>
+        Assert.Throws<DomainAuthorizationException>(() =>
             claim.Assign(indonesiaHandler, AssignmentRole.ClaimsHandler, Reported.AddDays(1)));
         Assert.Empty(claim.Assignments);
     }
