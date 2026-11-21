@@ -29,6 +29,20 @@ internal sealed class ClaimConfiguration : IEntityTypeConfiguration<Claim>
             .IsRequired();
         builder.Property(claim => claim.CreatedAtUtc).IsRequired();
 
+        builder.OwnsOne(claim => claim.EstimatedLoss, amount =>
+        {
+            amount.Property(value => value.Amount)
+                .HasColumnName("EstimatedLossAmount")
+                .HasPrecision(19, 4)
+                .IsRequired();
+            amount.Property(value => value.Currency)
+                .HasColumnName("EstimatedLossCurrency")
+                .HasConversion(DomainValueConverters.CurrencyCodeConverter)
+                .HasMaxLength(3)
+                .IsRequired();
+        });
+        builder.Navigation(claim => claim.EstimatedLoss).IsRequired();
+
         builder.HasOne(claim => claim.Policy)
             .WithMany(policy => policy.Claims)
             .HasForeignKey(claim => claim.PolicyId)

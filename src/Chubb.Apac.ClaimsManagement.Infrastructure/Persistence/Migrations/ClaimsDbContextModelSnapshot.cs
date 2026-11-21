@@ -608,6 +608,31 @@ namespace Chubb.Apac.ClaimsManagement.Infrastructure.Persistence.Migrations
                         });
                 });
 
+            modelBuilder.Entity("Chubb.Apac.ClaimsManagement.Infrastructure.Persistence.ClaimSubmissionIdempotencyRecord", b =>
+                {
+                    b.Property<string>("KeyHash")
+                        .HasColumnType("char(64)")
+                        .IsFixedLength();
+
+                    b.Property<Guid>("ClaimId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset>("CreatedAtUtc")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("RequestFingerprint")
+                        .IsRequired()
+                        .HasColumnType("char(64)")
+                        .IsFixedLength();
+
+                    b.HasKey("KeyHash");
+
+                    b.HasIndex("ClaimId")
+                        .IsUnique();
+
+                    b.ToTable("ClaimSubmissionIdempotency", "claims");
+                });
+
             modelBuilder.Entity("StaffUserMarket", b =>
                 {
                     b.Property<Guid>("StaffUserId")
@@ -661,6 +686,33 @@ namespace Chubb.Apac.ClaimsManagement.Infrastructure.Persistence.Migrations
                         .WithMany("Claims")
                         .HasForeignKey("PolicyId")
                         .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.OwnsOne("Chubb.Apac.ClaimsManagement.Domain.ValueObjects.Money", "EstimatedLoss", b1 =>
+                        {
+                            b1.Property<Guid>("ClaimId")
+                                .HasColumnType("uniqueidentifier");
+
+                            b1.Property<decimal>("Amount")
+                                .HasPrecision(19, 4)
+                                .HasColumnType("decimal(19,4)")
+                                .HasColumnName("EstimatedLossAmount");
+
+                            b1.Property<string>("Currency")
+                                .IsRequired()
+                                .HasMaxLength(3)
+                                .HasColumnType("nvarchar(3)")
+                                .HasColumnName("EstimatedLossCurrency");
+
+                            b1.HasKey("ClaimId");
+
+                            b1.ToTable("Claims", "claims");
+
+                            b1.WithOwner()
+                                .HasForeignKey("ClaimId");
+                        });
+
+                    b.Navigation("EstimatedLoss")
                         .IsRequired();
 
                     b.Navigation("Policy");
@@ -1082,6 +1134,17 @@ namespace Chubb.Apac.ClaimsManagement.Infrastructure.Persistence.Migrations
                         .IsRequired();
 
                     b.Navigation("Market");
+                });
+
+            modelBuilder.Entity("Chubb.Apac.ClaimsManagement.Infrastructure.Persistence.ClaimSubmissionIdempotencyRecord", b =>
+                {
+                    b.HasOne("Chubb.Apac.ClaimsManagement.Domain.Entities.Claim", "Claim")
+                        .WithOne()
+                        .HasForeignKey("Chubb.Apac.ClaimsManagement.Infrastructure.Persistence.ClaimSubmissionIdempotencyRecord", "ClaimId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Claim");
                 });
 
             modelBuilder.Entity("StaffUserMarket", b =>

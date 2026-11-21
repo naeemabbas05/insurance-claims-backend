@@ -28,6 +28,9 @@ public sealed class ClaimsDbContext(DbContextOptions<ClaimsDbContext> options) :
 
     public DbSet<StaffUser> StaffUsers => Set<StaffUser>();
 
+    public DbSet<ClaimSubmissionIdempotencyRecord> ClaimSubmissionIdempotencyRecords =>
+        Set<ClaimSubmissionIdempotencyRecord>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.HasDefaultSchema("claims");

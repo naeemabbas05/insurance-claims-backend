@@ -159,6 +159,7 @@ public sealed class ClaimDomainTests
             Incident,
             Reported,
             "Accidental loss reported by the policy holder.",
+            Money.Create(1200m, "MYR"),
             ClaimantDetails.Create(
                 ClaimantRole.PolicyHolder,
                 PersonName.Create("Avery Tan"),

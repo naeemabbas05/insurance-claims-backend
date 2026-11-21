@@ -1,3 +1,6 @@
+using Chubb.Apac.ClaimsManagement.Application.Claims.Submit;
+using Chubb.Apac.ClaimsManagement.Domain.Common;
+using FluentValidation;
 using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.Mvc;
 
@@ -11,17 +14,63 @@ public sealed class GlobalExceptionHandler(
         Exception exception,
         CancellationToken cancellationToken)
     {
-        logger.LogError(exception, "An unhandled exception occurred while processing the request.");
-
-        var problemDetails = new ProblemDetails
+        var status = exception switch
         {
-            Status = StatusCodes.Status500InternalServerError,
-            Title = "An unexpected error occurred.",
-            Instance = httpContext.Request.Path
+            ValidationException => StatusCodes.Status400BadRequest,
+            PolicyNotFoundException => StatusCodes.Status404NotFound,
+            IdempotencyKeyConflictException => StatusCodes.Status409Conflict,
+            MarketNotConfiguredException or DomainRuleViolationException =>
+                StatusCodes.Status422UnprocessableEntity,
+            _ => StatusCodes.Status500InternalServerError
         };
+
+        if (status >= StatusCodes.Status500InternalServerError)
+        {
+            logger.LogError(exception, "An unhandled exception occurred while processing the request.");
+        }
+        else
+        {
+            logger.LogWarning(
+                "Request rejected with status {StatusCode}: {ExceptionType}",
+                status,
+                exception.GetType().Name);
+        }
+
+        ProblemDetails problemDetails;
+        if (exception is ValidationException validationException)
+        {
+            var errors = validationException.Errors
+                .GroupBy(error => error.PropertyName)
+                .ToDictionary(
+                    group => group.Key,
+                    group => group.Select(error => error.ErrorMessage).ToArray());
+            problemDetails = new ValidationProblemDetails(errors)
+            {
+                Status = status,
+                Title = "One or more validation errors occurred.",
+                Instance = httpContext.Request.Path
+            };
+        }
+        else
+        {
+            problemDetails = new ProblemDetails
+            {
+                Status = status,
+                Title = status switch
+                {
+                    StatusCodes.Status404NotFound => "The requested resource was not found.",
+                    StatusCodes.Status409Conflict => "The idempotency key conflicts with an earlier request.",
+                    StatusCodes.Status422UnprocessableEntity => "The claim submission is not valid.",
+                    _ => "An unexpected error occurred."
+                },
+                Detail = status == StatusCodes.Status422UnprocessableEntity ? exception.Message : null,
+                Instance = httpContext.Request.Path
+            };
+        }
+
         problemDetails.Extensions["traceId"] = httpContext.TraceIdentifier;
 
-        httpContext.Response.StatusCode = problemDetails.Status.Value;
+        httpContext.Response.StatusCode = status;
         await httpContext.Response.WriteAsJsonAsync(problemDetails, cancellationToken);
         return true;
     }
