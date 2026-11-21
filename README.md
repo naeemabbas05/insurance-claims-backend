@@ -59,6 +59,21 @@ Content-Type: application/json
 
 Track a submitted claim using `GET /api/v1/claims/{claimReference}`.
 
+## Claim lifecycle
+
+Lifecycle operations enforce role and market rules in the Domain aggregate, and every transition or material action is written to `ClaimAuditHistory`. Status transitions are also retained in `ClaimStatusHistory`.
+
+- `GET /api/v1/claims/{claimReference}/history` returns the status timeline.
+- `GET /api/v1/claims/{claimReference}/audit` returns audit details to staff assigned to the claim's market.
+- `POST /api/v1/claims/{claimReference}/assessments` records assessment findings and recommended settlement.
+- `POST /api/v1/claims/{claimReference}/approval` requires a positive approved amount no greater than the latest recommendation.
+- `POST /api/v1/claims/{claimReference}/rejection` requires a reason. Settled claims cannot be rejected.
+- `POST /api/v1/claims/{claimReference}/information-requests` requests claimant information; `POST .../information-requests/{requestId}/responses` records the claimant response. `DELETE .../information-requests/{requestId}` cancels an open request.
+- `POST /api/v1/claims/{claimReference}/settlements` proposes a settlement. The total of active settlements cannot exceed the approved amount. Settlement approval, payment, and cancellation use `POST .../settlements/{settlementId}/approval`, `POST .../payment`, and `DELETE .../settlements/{settlementId}`.
+- `POST /api/v1/claims/{claimReference}/workflow-status` supports handler-driven reopening to `underReview` and closing.
+
+Lifecycle writes require an authenticated principal carrying `staff_user_id` (or `NameIdentifier`) for staff actions; claimant information responses require `claimant_id`. The starter host does not configure an authentication provider, so wire one before enabling these operations in a deployed environment.
+
 The infrastructure layer reads `ConnectionStrings__ClaimsDatabase` from standard ASP.NET Core configuration. Set the environment variable to override the Development LocalDB value:
 
 ```powershell

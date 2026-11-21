@@ -32,6 +32,7 @@ builder.Services
         options.JsonSerializerOptions.Converters.Add(
             new JsonStringEnumConverter(JsonNamingPolicy.CamelCase)));
 builder.Services.AddAuthorization();
+builder.Services.AddAuthentication();
 builder.Services
     .AddApiVersioning(options =>
     {
@@ -59,6 +60,7 @@ var app = builder.Build();
 
 app.UseExceptionHandler();
 app.UseSerilogRequestLogging();
+app.UseAuthentication();
 app.UseAuthorization();
 
 if (app.Environment.IsDevelopment())

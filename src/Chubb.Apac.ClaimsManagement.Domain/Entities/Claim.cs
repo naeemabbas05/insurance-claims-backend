@@ -40,6 +40,7 @@ public sealed class Claim : Entity
     private readonly List<ClaimStatusHistory> _statusHistory = [];
     private readonly List<ClaimInformationRequest> _informationRequests = [];
     private readonly List<ClaimSettlement> _settlements = [];
+    private readonly List<ClaimAuditEntry> _auditHistory = [];
 
     private Claim()
     {
@@ -47,6 +48,7 @@ public sealed class Claim : Entity
         Policy = null!;
         LossDescription = null!;
         EstimatedLoss = null!;
+        ApprovedAmount = null;
     }
 
     private Claim(
@@ -94,6 +96,7 @@ public sealed class Claim : Entity
             ReportedAtUtc,
             changedByStaffUserId: null,
             "Claim submitted."));
+        RecordAudit("ClaimSubmitted", ReportedAtUtc, details: null);
     }
 
     public ClaimNumber Number { get; private set; }
@@ -112,6 +115,8 @@ public sealed class Claim : Entity
 
     public Money EstimatedLoss { get; private set; }
 
+    public Money? ApprovedAmount { get; private set; }
+
     public ClaimStatus Status { get; private set; }
 
     public DateTimeOffset CreatedAtUtc { get; private set; }
@@ -129,6 +134,8 @@ public sealed class Claim : Entity
     public IReadOnlyCollection<ClaimInformationRequest> InformationRequests => _informationRequests.AsReadOnly();
 
     public IReadOnlyCollection<ClaimSettlement> Settlements => _settlements.AsReadOnly();
+
+    public IReadOnlyCollection<ClaimAuditEntry> AuditHistory => _auditHistory.AsReadOnly();
 
     public ClaimAssessment? LatestAssessment => _assessments
         .OrderByDescending(assessment => assessment.AssessedAtUtc)
@@ -166,6 +173,7 @@ public sealed class Claim : Entity
 
         var claimant = new Claimant(Id, details, addedAtUtc);
         _claimants.Add(claimant);
+        RecordAudit("ClaimantAdded", addedAtUtc, claimantId: claimant.Id);
         return claimant;
     }
 
@@ -187,6 +195,7 @@ public sealed class Claim : Entity
 
         var assignment = new ClaimAssignment(Id, staffUser, role, assignedAtUtc);
         _assignments.Add(assignment);
+        RecordAudit("StaffAssigned", assignedAtUtc, $"Assignment:{assignment.Id}; Role:{role}", staffUser);
         return assignment;
     }
 
@@ -195,6 +204,7 @@ public sealed class Claim : Entity
         ArgumentNullException.ThrowIfNull(unassignedBy);
         EnsureStaffCanPerform(unassignedBy, StaffRole.ClaimsHandler);
         FindEntity(_assignments, assignmentId, "Claim assignment").Unassign(unassignedAtUtc);
+        RecordAudit("StaffUnassigned", unassignedAtUtc, $"Assignment:{assignmentId}", unassignedBy);
     }
 
     public ClaimDocument AddDocument(
@@ -230,6 +240,12 @@ public sealed class Claim : Entity
             uploadedByStaff?.Id,
             uploadedAtUtc);
         _documents.Add(document);
+        RecordAudit(
+            "DocumentAdded",
+            uploadedAtUtc,
+            $"Document:{document.Id}; Type:{type}",
+            uploadedByStaff,
+            uploadedByClaimant?.Id);
         return document;
     }
 
@@ -280,6 +296,7 @@ public sealed class Claim : Entity
                 requireStaffActor: true);
         }
 
+        RecordAudit("AssessmentRecorded", assessedAtUtc, $"Assessment:{assessment.Id}", assessor);
         return assessment;
     }
 
@@ -309,6 +326,7 @@ public sealed class Claim : Entity
             requestedAtUtc,
             dueAtUtc);
         _informationRequests.Add(request);
+        RecordAudit("InformationRequested", requestedAtUtc, $"Request:{request.Id}", requestedBy);
 
         if (Status != ClaimStatus.AwaitingInformation)
         {
@@ -340,6 +358,7 @@ public sealed class Claim : Entity
 
         FindEntity(_informationRequests, requestId, "Information request")
             .Respond(claimant, response, respondedAtUtc);
+        RecordAudit("InformationResponseReceived", respondedAtUtc, $"Request:{requestId}", claimantId: claimant.Id);
 
         if (Status == ClaimStatus.AwaitingInformation &&
             _informationRequests.All(request => request.Status != InformationRequestStatus.Open))
@@ -369,6 +388,7 @@ public sealed class Claim : Entity
 
         FindEntity(_informationRequests, requestId, "Information request")
             .Cancel(cancelledBy, cancelledAtUtc);
+        RecordAudit("InformationRequestCancelled", cancelledAtUtc, $"Request:{requestId}", cancelledBy);
 
         if (Status == ClaimStatus.AwaitingInformation &&
             _informationRequests.All(request => request.Status != InformationRequestStatus.Open))
@@ -404,8 +424,10 @@ public sealed class Claim : Entity
         DomainRule.Require(amount.Amount > 0, "Settlement amount must be greater than zero.");
         EnsureNotBeforeLastStatusChange(proposedAtUtc);
 
-        var assessment = LatestAssessment
+        _ = LatestAssessment
             ?? throw new DomainRuleViolationException("A completed assessment is required before settlement.");
+        var approvedAmount = ApprovedAmount
+            ?? throw new DomainRuleViolationException("An approved amount is required before settlement.");
         DomainRule.Require(
             !_settlements.Any(settlement =>
                 settlement.IsFinal && settlement.Status != SettlementStatus.Cancelled),
@@ -415,8 +437,8 @@ public sealed class Claim : Entity
             .Where(settlement => settlement.Status != SettlementStatus.Cancelled)
             .Aggregate(Money.Zero(amount.Currency), (total, settlement) => total.Add(settlement.Amount));
         DomainRule.Require(
-            activeTotal.Add(amount).Amount <= assessment.RecommendedSettlement.Amount,
-            "Total settlements cannot exceed the latest recommended settlement.");
+            activeTotal.Add(amount).Amount <= approvedAmount.Amount,
+            "Total settlements cannot exceed the approved amount.");
 
         if (isFinal)
         {
@@ -428,6 +450,11 @@ public sealed class Claim : Entity
 
         var settlement = new ClaimSettlement(Id, payee, amount, isFinal, proposedBy, proposedAtUtc);
         _settlements.Add(settlement);
+        RecordAudit(
+            "SettlementProposed",
+            proposedAtUtc,
+            $"Settlement:{settlement.Id}; Amount:{amount.Amount} {amount.Currency.Value}; Final:{isFinal}",
+            proposedBy);
         return settlement;
     }
 
@@ -439,6 +466,7 @@ public sealed class Claim : Entity
         ArgumentNullException.ThrowIfNull(approver);
         EnsureStaffCanPerform(approver, StaffRole.Approver);
         FindEntity(_settlements, settlementId, "Settlement").Approve(approver, approvedAtUtc);
+        RecordAudit("SettlementApproved", approvedAtUtc, $"Settlement:{settlementId}", approver);
     }
 
     public void MarkSettlementPaid(
@@ -457,6 +485,7 @@ public sealed class Claim : Entity
         }
 
         settlement.MarkPaid(financeOfficer, paidAtUtc);
+        RecordAudit("SettlementPaid", paidAtUtc, $"Settlement:{settlementId}", financeOfficer);
 
         if (settlement.IsFinal &&
             _settlements.Where(item => item.Status != SettlementStatus.Cancelled)
@@ -480,6 +509,50 @@ public sealed class Claim : Entity
         ArgumentNullException.ThrowIfNull(cancelledBy);
         EnsureStaffCanPerform(cancelledBy, StaffRole.Approver);
         FindEntity(_settlements, settlementId, "Settlement").Cancel(cancelledAtUtc);
+        RecordAudit("SettlementCancelled", cancelledAtUtc, $"Settlement:{settlementId}", cancelledBy);
+    }
+
+    public void Approve(
+        StaffUser approver,
+        Money approvedAmount,
+        string reason,
+        DateTimeOffset approvedAtUtc)
+    {
+        ArgumentNullException.ThrowIfNull(approver);
+        ArgumentNullException.ThrowIfNull(approvedAmount);
+        EnsureStaffCanPerform(approver, StaffRole.Approver);
+        var approvalReason = DomainRule.RequiredText(reason, nameof(reason), 1000);
+        DomainRule.Require(approvedAmount.Amount > 0, "Approved amount must be greater than zero.");
+        DomainRule.Require(
+            approvedAmount.Currency == Policy.CoverageLimit.Currency,
+            "Approved amount must use the policy currency.");
+
+        TransitionTo(
+            ClaimStatus.Approved,
+            approver,
+            approvalReason,
+            approvedAtUtc,
+            requireStaffActor: true,
+            approvedAmount: approvedAmount);
+        RecordAudit(
+            "ClaimApproved",
+            approvedAtUtc,
+            $"Approved amount: {approvedAmount.Amount} {approvedAmount.Currency.Value}",
+            approver);
+    }
+
+    public void Reject(StaffUser approver, string reason, DateTimeOffset rejectedAtUtc)
+    {
+        ArgumentNullException.ThrowIfNull(approver);
+        EnsureStaffCanPerform(approver, StaffRole.Approver);
+        var rejectionReason = DomainRule.RequiredText(reason, nameof(reason), 1000);
+        TransitionTo(
+            ClaimStatus.Declined,
+            approver,
+            rejectionReason,
+            rejectedAtUtc,
+            requireStaffActor: true);
+        RecordAudit("ClaimRejected", rejectedAtUtc, rejectionReason, approver);
     }
 
     public void ChangeStatus(
@@ -494,14 +567,18 @@ public sealed class Claim : Entity
 
         var requiredRole = newStatus switch
         {
-            ClaimStatus.Approved or ClaimStatus.Declined => StaffRole.Approver,
-            ClaimStatus.UnderReview or ClaimStatus.AwaitingInformation or
-                ClaimStatus.AssessmentInProgress or ClaimStatus.Closed => StaffRole.ClaimsHandler,
-            ClaimStatus.Settled => throw new DomainRuleViolationException(
-                "A claim is settled only when its final settlement is paid."),
+            ClaimStatus.UnderReview or ClaimStatus.Closed => StaffRole.ClaimsHandler,
+            ClaimStatus.AwaitingInformation or ClaimStatus.AssessmentInProgress or
+                ClaimStatus.Approved or ClaimStatus.Declined or ClaimStatus.Settled =>
+                throw new DomainRuleViolationException(
+                    $"Claim status '{newStatus}' must be set through its dedicated lifecycle operation."),
             _ => throw new DomainRuleViolationException($"Claim cannot be transitioned to '{newStatus}'.")
         };
-        DomainRule.Require(changedBy.CanPerform(requiredRole), $"Staff user cannot transition a claim to '{newStatus}'.");
+        if (!changedBy.CanPerform(requiredRole))
+        {
+            throw new DomainAuthorizationException(
+                $"Staff user cannot transition a claim to '{newStatus}'.");
+        }
         TransitionTo(newStatus, changedBy, reason, changedAtUtc, requireStaffActor: true);
     }
 
@@ -511,7 +588,8 @@ public sealed class Claim : Entity
         string reason,
         DateTimeOffset changedAtUtc,
         bool requireStaffActor,
-        bool allowSettled = false)
+        bool allowSettled = false,
+        Money? approvedAmount = null)
     {
         DomainRule.Utc(changedAtUtc, nameof(changedAtUtc));
         DomainRule.Require(
@@ -534,10 +612,19 @@ public sealed class Claim : Entity
         if (newStatus == ClaimStatus.Approved)
         {
             DomainRule.Require(LatestAssessment is not null, "A completed assessment is required for approval.");
+            ArgumentNullException.ThrowIfNull(approvedAmount);
+            DomainRule.Require(approvedAmount.Amount > 0, "Approved amount must be greater than zero.");
             DomainRule.Require(
-                LatestAssessment!.RecommendedSettlement.Amount > 0,
-                "A claim with no recommended settlement cannot be approved.");
+                approvedAmount.Currency == Policy.CoverageLimit.Currency,
+                "Approved amount must use the policy currency.");
+            DomainRule.Require(
+                approvedAmount.Amount <= LatestAssessment!.RecommendedSettlement.Amount,
+                "Approved amount cannot exceed the latest recommended settlement.");
             EnsureNoOpenInformationRequests();
+        }
+        else
+        {
+            DomainRule.Require(approvedAmount is null, "Approved amount can only be set when approving a claim.");
         }
 
         if (newStatus is ClaimStatus.Declined or ClaimStatus.Closed)
@@ -551,15 +638,52 @@ public sealed class Claim : Entity
                 _informationRequests.Any(request => request.Status == InformationRequestStatus.Open),
                 "A claim can await information only while an information request is open.");
         }
+        if (newStatus == ClaimStatus.UnderReview && Status == ClaimStatus.AwaitingInformation)
+        {
+            EnsureNoOpenInformationRequests();
+        }
 
-        _statusHistory.Add(new ClaimStatusHistory(
+        var previousStatus = Status;
+        var statusHistoryEntry = new ClaimStatusHistory(
             Id,
             Status,
             newStatus,
             changedAtUtc,
             actor?.Id,
-            reason));
+            reason);
+        var auditDetails = $"{previousStatus} -> {newStatus}: {reason}";
+        var auditEntry = new ClaimAuditEntry(
+            Id,
+            "StatusChanged",
+            changedAtUtc,
+            auditDetails,
+            actor?.Id,
+            claimantId: null);
+        _statusHistory.Add(statusHistoryEntry);
+        _auditHistory.Add(auditEntry);
+        if (newStatus == ClaimStatus.Approved)
+        {
+            ApprovedAmount = approvedAmount;
+        }
+
         Status = newStatus;
+    }
+
+    private void RecordAudit(
+        string action,
+        DateTimeOffset occurredAtUtc,
+        string? details = null,
+        StaffUser? staffUser = null,
+        Guid? claimantId = null)
+    {
+        var entry = new ClaimAuditEntry(
+            Id,
+            action,
+            occurredAtUtc,
+            details,
+            staffUser?.Id,
+            claimantId);
+        _auditHistory.Add(entry);
     }
 
     private void EnsureNoOpenInformationRequests() =>
@@ -582,24 +706,34 @@ public sealed class Claim : Entity
 
     private void EnsureStaffCanWorkInMarket(StaffUser staffUser)
     {
-        DomainRule.Require(staffUser.IsActive, "Inactive staff cannot work on a claim.");
-        DomainRule.Require(
-            staffUser.CanWorkIn(Policy.Market.Code),
-            "Staff user is not authorized for the claim's market.");
+        if (!staffUser.IsActive)
+        {
+            throw new DomainAuthorizationException("Inactive staff cannot work on a claim.");
+        }
+
+        if (!staffUser.CanWorkIn(Policy.Market.Code))
+        {
+            throw new DomainAuthorizationException("Staff user is not authorized for the claim's market.");
+        }
     }
 
     private void EnsureStaffCanPerform(StaffUser staffUser, StaffRole role)
     {
         EnsureStaffCanWorkInMarket(staffUser);
-        DomainRule.Require(staffUser.CanPerform(role), $"Staff user must have the '{role}' role.");
+        if (!staffUser.CanPerform(role))
+        {
+            throw new DomainAuthorizationException($"Staff user must have the '{role}' role.");
+        }
     }
 
     private void EnsureStaffCanPerformAny(StaffUser staffUser, params StaffRole[] roles)
     {
         EnsureStaffCanWorkInMarket(staffUser);
-        DomainRule.Require(
-            roles.Any(staffUser.CanPerform),
-            $"Staff user must have one of the following roles: {string.Join(", ", roles)}.");
+        if (!roles.Any(staffUser.CanPerform))
+        {
+            throw new DomainAuthorizationException(
+                $"Staff user must have one of the following roles: {string.Join(", ", roles)}.");
+        }
     }
 
     private static StaffRole ToStaffRole(AssignmentRole role) =>

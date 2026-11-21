@@ -154,6 +154,50 @@ namespace Chubb.Apac.ClaimsManagement.Infrastructure.Persistence.Migrations
                     b.ToTable("ClaimAssignments", "claims");
                 });
 
+            modelBuilder.Entity("Chubb.Apac.ClaimsManagement.Domain.Entities.ClaimAuditEntry", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Action")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<Guid>("ClaimId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("ClaimantId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Details")
+                        .HasMaxLength(2000)
+                        .HasColumnType("nvarchar(2000)");
+
+                    b.Property<DateTimeOffset>("OccurredAtUtc")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<byte[]>("RowVersion")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("rowversion");
+
+                    b.Property<Guid?>("StaffUserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ClaimantId");
+
+                    b.HasIndex("StaffUserId");
+
+                    b.HasIndex("ClaimId", "OccurredAtUtc");
+
+                    b.ToTable("ClaimAuditHistory", "claims");
+                });
+
             modelBuilder.Entity("Chubb.Apac.ClaimsManagement.Domain.Entities.ClaimDocument", b =>
                 {
                     b.Property<Guid>("Id")
@@ -688,6 +732,30 @@ namespace Chubb.Apac.ClaimsManagement.Infrastructure.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
+                    b.OwnsOne("Chubb.Apac.ClaimsManagement.Domain.ValueObjects.Money", "ApprovedAmount", b1 =>
+                        {
+                            b1.Property<Guid>("ClaimId")
+                                .HasColumnType("uniqueidentifier");
+
+                            b1.Property<decimal>("Amount")
+                                .HasPrecision(19, 4)
+                                .HasColumnType("decimal(19,4)")
+                                .HasColumnName("ApprovedAmount");
+
+                            b1.Property<string>("Currency")
+                                .IsRequired()
+                                .HasMaxLength(3)
+                                .HasColumnType("nvarchar(3)")
+                                .HasColumnName("ApprovedCurrency");
+
+                            b1.HasKey("ClaimId");
+
+                            b1.ToTable("Claims", "claims");
+
+                            b1.WithOwner()
+                                .HasForeignKey("ClaimId");
+                        });
+
                     b.OwnsOne("Chubb.Apac.ClaimsManagement.Domain.ValueObjects.Money", "EstimatedLoss", b1 =>
                         {
                             b1.Property<Guid>("ClaimId")
@@ -711,6 +779,8 @@ namespace Chubb.Apac.ClaimsManagement.Infrastructure.Persistence.Migrations
                             b1.WithOwner()
                                 .HasForeignKey("ClaimId");
                         });
+
+                    b.Navigation("ApprovedAmount");
 
                     b.Navigation("EstimatedLoss")
                         .IsRequired();
@@ -804,6 +874,25 @@ namespace Chubb.Apac.ClaimsManagement.Infrastructure.Persistence.Migrations
                         .IsRequired();
 
                     b.Navigation("StaffUser");
+                });
+
+            modelBuilder.Entity("Chubb.Apac.ClaimsManagement.Domain.Entities.ClaimAuditEntry", b =>
+                {
+                    b.HasOne("Chubb.Apac.ClaimsManagement.Domain.Entities.Claim", null)
+                        .WithMany("AuditHistory")
+                        .HasForeignKey("ClaimId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Chubb.Apac.ClaimsManagement.Domain.Entities.Claimant", null)
+                        .WithMany()
+                        .HasForeignKey("ClaimantId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Chubb.Apac.ClaimsManagement.Domain.Entities.StaffUser", null)
+                        .WithMany()
+                        .HasForeignKey("StaffUserId")
+                        .OnDelete(DeleteBehavior.Restrict);
                 });
 
             modelBuilder.Entity("Chubb.Apac.ClaimsManagement.Domain.Entities.ClaimDocument", b =>
@@ -1167,6 +1256,8 @@ namespace Chubb.Apac.ClaimsManagement.Infrastructure.Persistence.Migrations
                     b.Navigation("Assessments");
 
                     b.Navigation("Assignments");
+
+                    b.Navigation("AuditHistory");
 
                     b.Navigation("Claimants");
 

@@ -22,6 +22,8 @@ public sealed class ClaimsDbContext(DbContextOptions<ClaimsDbContext> options) :
 
     public DbSet<ClaimStatusHistory> ClaimStatusHistory => Set<ClaimStatusHistory>();
 
+    public DbSet<ClaimAuditEntry> ClaimAuditHistory => Set<ClaimAuditEntry>();
+
     public DbSet<ClaimInformationRequest> ClaimInformationRequests => Set<ClaimInformationRequest>();
 
     public DbSet<ClaimSettlement> ClaimSettlements => Set<ClaimSettlement>();

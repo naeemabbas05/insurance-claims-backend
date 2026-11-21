@@ -43,6 +43,18 @@ internal sealed class ClaimConfiguration : IEntityTypeConfiguration<Claim>
         });
         builder.Navigation(claim => claim.EstimatedLoss).IsRequired();
 
+        builder.OwnsOne(claim => claim.ApprovedAmount, amount =>
+        {
+            amount.Property(value => value.Amount)
+                .HasColumnName("ApprovedAmount")
+                .HasPrecision(19, 4);
+            amount.Property(value => value.Currency)
+                .HasColumnName("ApprovedCurrency")
+                .HasConversion(DomainValueConverters.CurrencyCodeConverter)
+                .HasMaxLength(3);
+        });
+        builder.Navigation(claim => claim.ApprovedAmount).IsRequired(false);
+
         builder.HasOne(claim => claim.Policy)
             .WithMany(policy => policy.Claims)
             .HasForeignKey(claim => claim.PolicyId)
@@ -86,6 +98,14 @@ internal sealed class ClaimConfiguration : IEntityTypeConfiguration<Claim>
             .OnDelete(DeleteBehavior.Cascade);
         builder.Navigation(claim => claim.StatusHistory)
             .HasField("_statusHistory")
+            .UsePropertyAccessMode(PropertyAccessMode.Field);
+
+        builder.HasMany(claim => claim.AuditHistory)
+            .WithOne()
+            .HasForeignKey(entry => entry.ClaimId)
+            .OnDelete(DeleteBehavior.Cascade);
+        builder.Navigation(claim => claim.AuditHistory)
+            .HasField("_auditHistory")
             .UsePropertyAccessMode(PropertyAccessMode.Field);
 
         builder.HasMany(claim => claim.InformationRequests)

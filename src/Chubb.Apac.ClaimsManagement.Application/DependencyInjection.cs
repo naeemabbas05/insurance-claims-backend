@@ -1,4 +1,5 @@
 using Chubb.Apac.ClaimsManagement.Application.Claims.Submit;
+using Chubb.Apac.ClaimsManagement.Application.Claims.Lifecycle;
 using FluentValidation;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -11,6 +12,7 @@ public static class DependencyInjection
     {
         services.AddValidatorsFromAssemblyContaining<SubmitClaimCommandValidator>();
         services.AddScoped<IClaimSubmissionService, ClaimSubmissionService>();
+        services.AddScoped<IClaimLifecycleService, ClaimLifecycleService>();
         services.TryAddSingleton<TimeProvider>(TimeProvider.System);
         return services;
     }
