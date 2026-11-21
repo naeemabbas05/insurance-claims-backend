@@ -1,4 +1,5 @@
 using Chubb.Apac.ClaimsManagement.Application.Claims.Lifecycle;
+using Chubb.Apac.ClaimsManagement.Application.Integration;
 using Chubb.Apac.ClaimsManagement.Domain.Entities;
 using Chubb.Apac.ClaimsManagement.Domain.Enums;
 using Chubb.Apac.ClaimsManagement.Domain.ValueObjects;
@@ -39,7 +40,8 @@ public sealed class ClaimLifecycleTests
         var approver = CreateStaff(StaffRole.Approver);
         var financeOfficer = CreateStaff(StaffRole.FinanceOfficer);
         var repository = new FakeClaimLifecycleRepository(claim, handler, assessor, approver, financeOfficer);
-        var service = CreateService(repository);
+        var eventOutbox = new RecordingClaimIntegrationEventOutbox();
+        var service = CreateService(repository, eventOutbox);
 
         await service.ChangeWorkflowStatusAsync(
             new ChangeClaimWorkflowStatusCommand(
@@ -84,6 +86,10 @@ public sealed class ClaimLifecycleTests
         Assert.Equal(750m, approved.ApprovedAmount);
         Assert.Equal(ClaimStatus.Settled, paid.Status);
         Assert.Equal(6, repository.SaveCount);
+        Assert.Contains(eventOutbox.Events, item => item is ClaimApprovedV1);
+        Assert.DoesNotContain(eventOutbox.Events, item => item is ClaimRejectedV1);
+        Assert.Contains(eventOutbox.Events, item => item is ClaimSettledV1);
+        Assert.Equal(4, eventOutbox.Events.Count(item => item is ClaimStatusChangedV1));
         Assert.Contains(claim.AuditHistory, entry => entry.Action == "AssessmentRecorded");
         Assert.Contains(claim.AuditHistory, entry => entry.Action == "ClaimApproved");
         Assert.Contains(claim.AuditHistory, entry => entry.Action == "SettlementPaid");
@@ -101,7 +107,8 @@ public sealed class ClaimLifecycleTests
         var claim = CreateClaim();
         var handler = CreateStaff(StaffRole.ClaimsHandler);
         var repository = new FakeClaimLifecycleRepository(claim, handler);
-        var service = CreateService(repository);
+        var eventOutbox = new RecordingClaimIntegrationEventOutbox();
+        var service = CreateService(repository, eventOutbox);
         await service.ChangeWorkflowStatusAsync(
             new ChangeClaimWorkflowStatusCommand(
                 claim.Number.Value,
@@ -128,11 +135,48 @@ public sealed class ClaimLifecycleTests
 
         Assert.Equal(ClaimStatus.AwaitingInformation, requested.Status);
         Assert.Equal(ClaimStatus.UnderReview, responded.Status);
+        Assert.Equal(
+            [
+                ClaimStatus.UnderReview.ToString(),
+                ClaimStatus.AwaitingInformation.ToString(),
+                ClaimStatus.UnderReview.ToString()
+            ],
+            eventOutbox.Events
+                .OfType<ClaimStatusChangedV1>()
+                .Select(item => item.NewStatus));
         Assert.Contains(claim.AuditHistory, entry => entry.Action == "InformationRequested");
         Assert.Contains(claim.AuditHistory, entry => entry.Action == "InformationResponseReceived");
     }
 
-    private static ClaimLifecycleService CreateService(FakeClaimLifecycleRepository repository)
+    [Fact]
+    public async Task RejectionEmitsRejectionAndStatusEvents()
+    {
+        var claim = CreateClaim();
+        var handler = CreateStaff(StaffRole.ClaimsHandler);
+        var approver = CreateStaff(StaffRole.Approver);
+        var repository = new FakeClaimLifecycleRepository(claim, handler, approver);
+        var eventOutbox = new RecordingClaimIntegrationEventOutbox();
+        var service = CreateService(repository, eventOutbox);
+
+        await service.ChangeWorkflowStatusAsync(
+            new ChangeClaimWorkflowStatusCommand(
+                claim.Number.Value,
+                handler.Id,
+                ClaimStatus.UnderReview,
+                "Review started."),
+            CancellationToken.None);
+        var rejected = await service.RejectAsync(
+            new RejectClaimCommand(claim.Number.Value, approver.Id, "The loss is not covered."),
+            CancellationToken.None);
+
+        Assert.Equal(ClaimStatus.Declined, rejected.Status);
+        Assert.Contains(eventOutbox.Events, item => item is ClaimRejectedV1);
+        Assert.Equal(2, eventOutbox.Events.OfType<ClaimStatusChangedV1>().Count());
+    }
+
+    private static ClaimLifecycleService CreateService(
+        FakeClaimLifecycleRepository repository,
+        IClaimIntegrationEventOutbox? eventOutbox = null)
     {
         var clock = new FixedTimeProvider(Now);
         return new ClaimLifecycleService(
@@ -148,6 +192,7 @@ public sealed class ClaimLifecycleTests
             new PayClaimSettlementCommandValidator(),
             new CancelClaimSettlementCommandValidator(),
             new ChangeClaimWorkflowStatusCommandValidator(),
+            eventOutbox ?? new RecordingClaimIntegrationEventOutbox(),
             clock);
     }
 

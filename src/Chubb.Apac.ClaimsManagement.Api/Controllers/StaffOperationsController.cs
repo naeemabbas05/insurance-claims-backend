@@ -1,7 +1,10 @@
 using System.Security.Claims;
 using Asp.Versioning;
+using Chubb.Apac.ClaimsManagement.Api.Infrastructure;
 using Chubb.Apac.ClaimsManagement.Api.Models;
 using Chubb.Apac.ClaimsManagement.Application.Claims.Staff;
+using Chubb.Apac.ClaimsManagement.Application.Security;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Chubb.Apac.ClaimsManagement.Api.Controllers;
@@ -9,8 +12,10 @@ namespace Chubb.Apac.ClaimsManagement.Api.Controllers;
 [ApiController]
 [ApiVersion(1.0)]
 [Route("api/v{version:apiVersion}/staff")]
+[Authorize(Roles = "ClaimsOfficer,Manager")]
 public sealed class StaffOperationsController(
-    IClaimStaffOperationsService staffOperationsService) : ControllerBase
+    IClaimStaffOperationsService staffOperationsService,
+    IClaimAccessAuthorizationService claimAccessAuthorizationService) : ControllerBase
 {
     [HttpGet("claims/incoming")]
     [ProducesResponseType<PagedResult<StaffClaimListItem>>(StatusCodes.Status200OK)]
@@ -28,6 +33,11 @@ public sealed class StaffOperationsController(
             return Unauthorized();
         }
 
+        await claimAccessAuthorizationService.AuthorizeStaffAsync(
+            actorStaffUserId,
+            ClaimAccessQueryFactory.GetAccessRole(User),
+            marketCode,
+            cancellationToken);
         return Ok(await staffOperationsService.GetIncomingClaimsAsync(
             new ClaimMarketPageQuery(actorStaffUserId, marketCode, page, pageSize),
             cancellationToken));
@@ -49,6 +59,11 @@ public sealed class StaffOperationsController(
             return Unauthorized();
         }
 
+        await claimAccessAuthorizationService.AuthorizeStaffAsync(
+            actorStaffUserId,
+            ClaimAccessQueryFactory.GetAccessRole(User),
+            marketCode,
+            cancellationToken);
         return Ok(await staffOperationsService.GetUnassignedClaimsAsync(
             new ClaimMarketPageQuery(actorStaffUserId, marketCode, page, pageSize),
             cancellationToken));
@@ -72,6 +87,11 @@ public sealed class StaffOperationsController(
             return Unauthorized();
         }
 
+        await claimAccessAuthorizationService.AuthorizeStaffAsync(
+            actorStaffUserId,
+            ClaimAccessQueryFactory.GetAccessRole(User),
+            marketCode,
+            cancellationToken);
         return Ok(await staffOperationsService.GetOfficerClaimsAsync(
             new OfficerClaimsPageQuery(actorStaffUserId, officerId, marketCode, page, pageSize),
             cancellationToken));
@@ -93,6 +113,11 @@ public sealed class StaffOperationsController(
             return Unauthorized();
         }
 
+        await claimAccessAuthorizationService.AuthorizeStaffAsync(
+            actorStaffUserId,
+            ClaimAccessQueryFactory.GetAccessRole(User),
+            marketCode,
+            cancellationToken);
         return Ok(await staffOperationsService.GetOfficerWorkloadAsync(
             new OfficerWorkloadQuery(actorStaffUserId, officerId, marketCode),
             cancellationToken));
@@ -113,6 +138,9 @@ public sealed class StaffOperationsController(
             return Unauthorized();
         }
 
+        await claimAccessAuthorizationService.AuthorizeAsync(
+            ClaimAccessQueryFactory.Create(claimReference, User),
+            cancellationToken);
         return Ok(await staffOperationsService.GetAssignmentHistoryAsync(
             new ClaimAssignmentHistoryQuery(actorStaffUserId, claimReference),
             cancellationToken));
@@ -136,6 +164,9 @@ public sealed class StaffOperationsController(
             return Unauthorized();
         }
 
+        await claimAccessAuthorizationService.AuthorizeAsync(
+            ClaimAccessQueryFactory.Create(claimReference, User),
+            cancellationToken);
         var assignment = await staffOperationsService.AssignAsync(
             new AssignClaimCommand(actorStaffUserId, claimReference, request.OfficerId, request.Role),
             cancellationToken);
@@ -164,6 +195,9 @@ public sealed class StaffOperationsController(
             return Unauthorized();
         }
 
+        await claimAccessAuthorizationService.AuthorizeAsync(
+            ClaimAccessQueryFactory.Create(claimReference, User),
+            cancellationToken);
         return Ok(await staffOperationsService.ReassignAsync(
             new ReassignClaimCommand(
                 actorStaffUserId,
@@ -181,7 +215,13 @@ public sealed class StaffOperationsController(
             return false;
         }
 
-        var value = User.FindFirstValue("staff_user_id") ?? User.FindFirstValue(ClaimTypes.NameIdentifier);
-        return Guid.TryParse(value, out staffUserId) && staffUserId != Guid.Empty;
+        var value = ClaimAccessQueryFactory.GetStaffUserId(User);
+        if (value.HasValue)
+        {
+            staffUserId = value.Value;
+            return true;
+        }
+
+        return false;
     }
 }

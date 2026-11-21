@@ -2,6 +2,7 @@ using Chubb.Apac.ClaimsManagement.Domain.Common;
 using Chubb.Apac.ClaimsManagement.Domain.Entities;
 using Chubb.Apac.ClaimsManagement.Domain.Enums;
 using Chubb.Apac.ClaimsManagement.Domain.ValueObjects;
+using Chubb.Apac.ClaimsManagement.Application.Integration;
 using FluentValidation;
 
 namespace Chubb.Apac.ClaimsManagement.Application.Claims.Lifecycle;
@@ -19,6 +20,7 @@ public sealed class ClaimLifecycleService(
     IValidator<PayClaimSettlementCommand> paySettlementValidator,
     IValidator<CancelClaimSettlementCommand> cancelSettlementValidator,
     IValidator<ChangeClaimWorkflowStatusCommand> changeStatusValidator,
+    IClaimIntegrationEventOutbox eventOutbox,
     TimeProvider timeProvider) : IClaimLifecycleService
 {
     public async Task<IReadOnlyList<ClaimStatusHistoryItem>> GetStatusHistoryAsync(
@@ -67,13 +69,20 @@ public sealed class ClaimLifecycleService(
             command.ClaimReference,
             command.StaffUserId,
             cancellationToken);
+        var previousStatus = claim.Status;
+        var occurredAtUtc = timeProvider.GetUtcNow();
         var assessment = claim.RecordAssessment(
             staff,
             Money.Create(command.AssessedDamageAmount, command.CurrencyCode),
             Money.Create(command.RecommendedSettlementAmount, command.CurrencyCode),
             command.Findings,
-            timeProvider.GetUtcNow());
-        await repository.SaveChangesAsync(cancellationToken);
+            occurredAtUtc);
+        await SaveStatusChangeAsync(
+            claim,
+            previousStatus,
+            staff.Id,
+            occurredAtUtc,
+            cancellationToken);
         return ToResult(claim, assessment.Id);
     }
 
@@ -86,12 +95,28 @@ public sealed class ClaimLifecycleService(
             command.ClaimReference,
             command.StaffUserId,
             cancellationToken);
+        var previousStatus = claim.Status;
+        var occurredAtUtc = timeProvider.GetUtcNow();
         claim.Approve(
             staff,
             Money.Create(command.ApprovedAmount, command.CurrencyCode),
             command.Reason,
-            timeProvider.GetUtcNow());
-        await repository.SaveChangesAsync(cancellationToken);
+            occurredAtUtc);
+        eventOutbox.Enqueue(new ClaimApprovedV1(
+            Guid.NewGuid(),
+            occurredAtUtc,
+            claim.Id,
+            claim.Number.Value,
+            claim.Policy.MarketCode.Value,
+            staff.Id,
+            claim.ApprovedAmount!.Amount,
+            claim.ApprovedAmount.Currency.Value));
+        await SaveStatusChangeAsync(
+            claim,
+            previousStatus,
+            staff.Id,
+            occurredAtUtc,
+            cancellationToken);
         return ToResult(claim);
     }
 
@@ -104,8 +129,22 @@ public sealed class ClaimLifecycleService(
             command.ClaimReference,
             command.StaffUserId,
             cancellationToken);
-        claim.Reject(staff, command.Reason, timeProvider.GetUtcNow());
-        await repository.SaveChangesAsync(cancellationToken);
+        var previousStatus = claim.Status;
+        var occurredAtUtc = timeProvider.GetUtcNow();
+        claim.Reject(staff, command.Reason, occurredAtUtc);
+        eventOutbox.Enqueue(new ClaimRejectedV1(
+            Guid.NewGuid(),
+            occurredAtUtc,
+            claim.Id,
+            claim.Number.Value,
+            claim.Policy.MarketCode.Value,
+            staff.Id));
+        await SaveStatusChangeAsync(
+            claim,
+            previousStatus,
+            staff.Id,
+            occurredAtUtc,
+            cancellationToken);
         return ToResult(claim);
     }
 
@@ -120,13 +159,20 @@ public sealed class ClaimLifecycleService(
             cancellationToken);
         var claimant = claim.Claimants.FirstOrDefault(item => item.Id == command.ClaimantId)
             ?? throw new DomainRuleViolationException("Claimant does not belong to this claim.");
+        var previousStatus = claim.Status;
+        var occurredAtUtc = timeProvider.GetUtcNow();
         var request = claim.RequestInformation(
             staff,
             claimant,
             command.Question,
-            timeProvider.GetUtcNow(),
+            occurredAtUtc,
             command.DueAtUtc);
-        await repository.SaveChangesAsync(cancellationToken);
+        await SaveStatusChangeAsync(
+            claim,
+            previousStatus,
+            staff.Id,
+            occurredAtUtc,
+            cancellationToken);
         return ToResult(claim, request.Id);
     }
 
@@ -138,12 +184,19 @@ public sealed class ClaimLifecycleService(
         var claim = await GetClaimAsync(command.ClaimReference, cancellationToken);
         var claimant = claim.Claimants.FirstOrDefault(item => item.Id == command.ClaimantId)
             ?? throw new ClaimLifecycleAccessDeniedException();
+        var previousStatus = claim.Status;
+        var occurredAtUtc = timeProvider.GetUtcNow();
         claim.RespondToInformationRequest(
             command.RequestId,
             claimant,
             command.Response,
-            timeProvider.GetUtcNow());
-        await repository.SaveChangesAsync(cancellationToken);
+            occurredAtUtc);
+        await SaveStatusChangeAsync(
+            claim,
+            previousStatus,
+            claimant.Id,
+            occurredAtUtc,
+            cancellationToken);
         return ToResult(claim, command.RequestId);
     }
 
@@ -156,8 +209,15 @@ public sealed class ClaimLifecycleService(
             command.ClaimReference,
             command.StaffUserId,
             cancellationToken);
-        claim.CancelInformationRequest(command.RequestId, staff, timeProvider.GetUtcNow());
-        await repository.SaveChangesAsync(cancellationToken);
+        var previousStatus = claim.Status;
+        var occurredAtUtc = timeProvider.GetUtcNow();
+        claim.CancelInformationRequest(command.RequestId, staff, occurredAtUtc);
+        await SaveStatusChangeAsync(
+            claim,
+            previousStatus,
+            staff.Id,
+            occurredAtUtc,
+            cancellationToken);
         return ToResult(claim, command.RequestId);
     }
 
@@ -205,8 +265,31 @@ public sealed class ClaimLifecycleService(
             command.ClaimReference,
             command.StaffUserId,
             cancellationToken);
-        claim.MarkSettlementPaid(command.SettlementId, staff, timeProvider.GetUtcNow());
-        await repository.SaveChangesAsync(cancellationToken);
+        var previousStatus = claim.Status;
+        var occurredAtUtc = timeProvider.GetUtcNow();
+        claim.MarkSettlementPaid(command.SettlementId, staff, occurredAtUtc);
+        if (previousStatus != ClaimStatus.Settled && claim.Status == ClaimStatus.Settled)
+        {
+            var paidSettlements = claim.Settlements
+                .Where(settlement => settlement.Status == SettlementStatus.Paid)
+                .ToArray();
+            eventOutbox.Enqueue(new ClaimSettledV1(
+                Guid.NewGuid(),
+                occurredAtUtc,
+                claim.Id,
+                claim.Number.Value,
+                claim.Policy.MarketCode.Value,
+                staff.Id,
+                paidSettlements.Sum(settlement => settlement.Amount.Amount),
+                paidSettlements[0].Amount.Currency.Value));
+        }
+
+        await SaveStatusChangeAsync(
+            claim,
+            previousStatus,
+            staff.Id,
+            occurredAtUtc,
+            cancellationToken);
         return ToResult(claim, command.SettlementId);
     }
 
@@ -233,12 +316,19 @@ public sealed class ClaimLifecycleService(
             command.ClaimReference,
             command.StaffUserId,
             cancellationToken);
+        var previousStatus = claim.Status;
+        var occurredAtUtc = timeProvider.GetUtcNow();
         claim.ChangeStatus(
             command.NewStatus,
             staff,
             command.Reason,
-            timeProvider.GetUtcNow());
-        await repository.SaveChangesAsync(cancellationToken);
+            occurredAtUtc);
+        await SaveStatusChangeAsync(
+            claim,
+            previousStatus,
+            staff.Id,
+            occurredAtUtc,
+            cancellationToken);
         return ToResult(claim);
     }
 
@@ -288,6 +378,29 @@ public sealed class ClaimLifecycleService(
             claim.ApprovedAmount?.Amount,
             claim.ApprovedAmount?.Currency.Value,
             resourceId);
+
+    private async Task SaveStatusChangeAsync(
+        Claim claim,
+        ClaimStatus previousStatus,
+        Guid? actorId,
+        DateTimeOffset occurredAtUtc,
+        CancellationToken cancellationToken)
+    {
+        if (claim.Status != previousStatus)
+        {
+            eventOutbox.Enqueue(new ClaimStatusChangedV1(
+                Guid.NewGuid(),
+                occurredAtUtc,
+                claim.Id,
+                claim.Number.Value,
+                claim.Policy.MarketCode.Value,
+                previousStatus.ToString(),
+                claim.Status.ToString(),
+                actorId));
+        }
+
+        await repository.SaveChangesAsync(cancellationToken);
+    }
 
     private static bool IsValidClaimReference(string? value) =>
         value is { Length: 39 } &&

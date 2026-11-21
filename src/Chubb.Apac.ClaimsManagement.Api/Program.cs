@@ -4,7 +4,9 @@ using Chubb.Apac.ClaimsManagement.Application;
 using Chubb.Apac.ClaimsManagement.Api.Configuration;
 using Chubb.Apac.ClaimsManagement.Api.Infrastructure;
 using Chubb.Apac.ClaimsManagement.Infrastructure;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
+using Microsoft.IdentityModel.Tokens;
 using Microsoft.Extensions.Options;
 using Serilog;
 using System.Text.Json;
@@ -31,8 +33,53 @@ builder.Services
     .AddJsonOptions(options =>
         options.JsonSerializerOptions.Converters.Add(
             new JsonStringEnumConverter(JsonNamingPolicy.CamelCase)));
+var jwtOptions = builder.Configuration
+    .GetSection(JwtAuthenticationOptions.SectionName)
+    .Get<JwtAuthenticationOptions>() ?? new JwtAuthenticationOptions();
+builder.Services
+    .AddOptions<JwtAuthenticationOptions>()
+    .Bind(builder.Configuration.GetSection(JwtAuthenticationOptions.SectionName))
+    .Validate(options =>
+    {
+        if (string.IsNullOrWhiteSpace(options.Authority))
+        {
+            return builder.Environment.IsDevelopment();
+        }
+
+        return Uri.TryCreate(options.Authority, UriKind.Absolute, out var authority) &&
+               (string.Equals(authority.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase) ||
+                (builder.Environment.IsDevelopment() &&
+                 string.Equals(authority.Scheme, Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase)));
+    }, "Jwt:Authority must be configured as an absolute HTTPS URL outside Development.")
+    .Validate(
+        options => builder.Environment.IsDevelopment() || !string.IsNullOrWhiteSpace(options.Audience),
+        "Jwt:Audience is required outside Development.")
+    .Validate(options => !string.IsNullOrWhiteSpace(options.RoleClaimType), "Jwt:RoleClaimType is required.")
+    .ValidateOnStart();
+builder.Services
+    .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddJwtBearer(options =>
+    {
+        options.Authority = string.IsNullOrWhiteSpace(jwtOptions.Authority)
+            ? null
+            : jwtOptions.Authority;
+        options.Audience = string.IsNullOrWhiteSpace(jwtOptions.Audience)
+            ? null
+            : jwtOptions.Audience;
+        options.RequireHttpsMetadata = !builder.Environment.IsDevelopment();
+        options.MapInboundClaims = false;
+        options.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidateIssuer = true,
+            ValidateAudience = true,
+            ValidateLifetime = true,
+            ValidateIssuerSigningKey = true,
+            RoleClaimType = jwtOptions.RoleClaimType,
+            NameClaimType = "sub",
+            ClockSkew = TimeSpan.FromMinutes(2)
+        };
+    });
 builder.Services.AddAuthorization();
-builder.Services.AddAuthentication();
 builder.Services
     .AddApiVersioning(options =>
     {

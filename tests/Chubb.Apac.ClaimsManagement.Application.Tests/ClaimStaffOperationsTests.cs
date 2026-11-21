@@ -1,4 +1,5 @@
 using Chubb.Apac.ClaimsManagement.Application.Claims.Staff;
+using Chubb.Apac.ClaimsManagement.Application.Integration;
 using Chubb.Apac.ClaimsManagement.Domain.Entities;
 using Chubb.Apac.ClaimsManagement.Domain.Enums;
 using Chubb.Apac.ClaimsManagement.Domain.ValueObjects;
@@ -68,7 +69,8 @@ public sealed class ClaimStaffOperationsTests
             handler,
             firstOfficer,
             secondOfficer);
-        var service = CreateService(repository);
+        var eventOutbox = new RecordingClaimIntegrationEventOutbox();
+        var service = CreateService(repository, eventOutbox);
 
         var firstAssignment = await service.AssignAsync(
             new AssignClaimCommand(
@@ -98,10 +100,12 @@ public sealed class ClaimStaffOperationsTests
         Assert.Equal(1, workload.ActiveClaimCount);
         Assert.Equal(1, workload.ByRole.Single().ActiveClaimCount);
         Assert.Equal(2, repository.SaveCount);
+        Assert.Equal(2, eventOutbox.Events.Count(item => item is ClaimAssignedV1));
     }
 
     private static ClaimStaffOperationsService CreateService(
-        FakeClaimStaffOperationsRepository repository) =>
+        FakeClaimStaffOperationsRepository repository,
+        IClaimIntegrationEventOutbox? eventOutbox = null) =>
         new(
             repository,
             new ClaimMarketPageQueryValidator(),
@@ -110,6 +114,7 @@ public sealed class ClaimStaffOperationsTests
             new ClaimAssignmentHistoryQueryValidator(),
             new AssignClaimCommandValidator(),
             new ReassignClaimCommandValidator(),
+            eventOutbox ?? new RecordingClaimIntegrationEventOutbox(),
             new FixedTimeProvider(Now));
 
     private static Claim CreateClaim(string marketCode, string policyNumber)

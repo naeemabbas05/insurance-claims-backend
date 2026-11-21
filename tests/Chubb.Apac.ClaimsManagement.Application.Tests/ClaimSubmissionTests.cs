@@ -1,4 +1,5 @@
 using Chubb.Apac.ClaimsManagement.Application.Claims.Submit;
+using Chubb.Apac.ClaimsManagement.Application.Integration;
 using Chubb.Apac.ClaimsManagement.Domain.Entities;
 using Chubb.Apac.ClaimsManagement.Domain.Enums;
 using Chubb.Apac.ClaimsManagement.Domain.ValueObjects;
@@ -32,7 +33,8 @@ public sealed class ClaimSubmissionTests
     public async Task SubmitCreatesClaimWithSubmittedStatusAndReplaysSameIdempotencyKey()
     {
         var repository = new FakeClaimSubmissionRepository(CreatePolicy());
-        var service = CreateService(repository);
+        var eventOutbox = new RecordingClaimIntegrationEventOutbox();
+        var service = CreateService(repository, eventOutbox);
 
         var created = await service.SubmitAsync(ValidCommand(), CancellationToken.None);
         var replay = await service.SubmitAsync(ValidCommand(), CancellationToken.None);
@@ -44,6 +46,8 @@ public sealed class ClaimSubmissionTests
         Assert.True(replay.IsReplay);
         Assert.Equal(created.ClaimReference, replay.ClaimReference);
         Assert.Equal(1, repository.SaveCount);
+        Assert.Single(eventOutbox.Events);
+        Assert.IsType<ClaimSubmittedV1>(eventOutbox.Events.Single());
     }
 
     [Fact]
@@ -80,10 +84,13 @@ public sealed class ClaimSubmissionTests
         Assert.StartsWith("CLM-SG-", result.ClaimReference, StringComparison.Ordinal);
     }
 
-    private static ClaimSubmissionService CreateService(FakeClaimSubmissionRepository repository) =>
+    private static ClaimSubmissionService CreateService(
+        FakeClaimSubmissionRepository repository,
+        IClaimIntegrationEventOutbox? eventOutbox = null) =>
         new(
             repository,
             new SubmitClaimCommandValidator(new FixedTimeProvider(Now)),
+            eventOutbox ?? new RecordingClaimIntegrationEventOutbox(),
             new FixedTimeProvider(Now));
 
     private static SubmitClaimCommand ValidCommand() =>

@@ -3,6 +3,9 @@ using Chubb.Apac.ClaimsManagement.Application.Claims.Submit;
 using Chubb.Apac.ClaimsManagement.Application.Claims.Lifecycle;
 using Chubb.Apac.ClaimsManagement.Application.Claims.Staff;
 using Chubb.Apac.ClaimsManagement.Application.ManagementReporting;
+using Chubb.Apac.ClaimsManagement.Application.Integration;
+using Chubb.Apac.ClaimsManagement.Infrastructure.Integration;
+using Chubb.Apac.ClaimsManagement.Application.Security;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -25,6 +28,17 @@ public static class DependencyInjection
         services.AddScoped<IClaimLifecycleRepository, ClaimLifecycleRepository>();
         services.AddScoped<IClaimStaffOperationsRepository, ClaimStaffOperationsRepository>();
         services.AddScoped<IManagementClaimsReportRepository, ManagementClaimsReportRepository>();
+        services.AddScoped<IClaimAccessRepository, ClaimAccessRepository>();
+        services.AddScoped<IClaimIntegrationEventOutbox, EfCoreClaimIntegrationEventOutbox>();
+        services.AddScoped<IClaimOutboxStore, ClaimOutboxStore>();
+        services.Configure<KafkaOptions>(options =>
+        {
+            options.BootstrapServers = configuration[$"{KafkaOptions.SectionName}:BootstrapServers"];
+            options.ClaimEventsTopic =
+                configuration[$"{KafkaOptions.SectionName}:ClaimEventsTopic"] ?? "claims.events";
+        });
+        services.AddSingleton<IClaimEventKafkaProducer, KafkaClaimEventProducer>();
+        services.AddHostedService<ClaimOutboxPublisherBackgroundService>();
 
         return services;
     }

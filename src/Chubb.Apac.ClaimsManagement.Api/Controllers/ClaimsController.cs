@@ -1,6 +1,9 @@
 using Asp.Versioning;
+using Chubb.Apac.ClaimsManagement.Api.Infrastructure;
 using Chubb.Apac.ClaimsManagement.Api.Models;
+using Chubb.Apac.ClaimsManagement.Application.Security;
 using Chubb.Apac.ClaimsManagement.Application.Claims.Submit;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Chubb.Apac.ClaimsManagement.Api.Controllers;
@@ -8,11 +11,16 @@ namespace Chubb.Apac.ClaimsManagement.Api.Controllers;
 [ApiController]
 [ApiVersion(1.0)]
 [Route("api/v{version:apiVersion}/claims")]
-public sealed class ClaimsController(IClaimSubmissionService claimSubmissionService) : ControllerBase
+public sealed class ClaimsController(
+    IClaimSubmissionService claimSubmissionService,
+    IClaimAccessAuthorizationService claimAccessAuthorizationService) : ControllerBase
 {
     [HttpPost]
+    [Authorize(Roles = "Claimant")]
     [ProducesResponseType<ClaimSubmissionResponse>(StatusCodes.Status201Created)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status403Forbidden)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status409Conflict)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status422UnprocessableEntity)]
@@ -21,6 +29,17 @@ public sealed class ClaimsController(IClaimSubmissionService claimSubmissionServ
         [FromHeader(Name = "Idempotency-Key")] string? idempotencyKey,
         CancellationToken cancellationToken)
     {
+        var tokenEmail = User.FindFirst("email")?.Value;
+        if (!ClaimAccessQueryFactory.HasVerifiedEmail(User) ||
+            string.IsNullOrWhiteSpace(tokenEmail) ||
+            !string.Equals(
+                request.Claimant?.Email?.Trim(),
+                tokenEmail.Trim(),
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return Forbid();
+        }
+
         var command = new SubmitClaimCommand(
             idempotencyKey ?? string.Empty,
             request.MarketCode ?? string.Empty,
@@ -57,12 +76,19 @@ public sealed class ClaimsController(IClaimSubmissionService claimSubmissionServ
     }
 
     [HttpGet("{claimReference}", Name = nameof(GetTracking))]
+    [Authorize(Roles = "Claimant,ClaimsOfficer,Manager")]
     [ProducesResponseType<ClaimTrackingResponse>(StatusCodes.Status200OK)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status403Forbidden)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<ClaimTrackingResponse>> GetTracking(
         string claimReference,
         CancellationToken cancellationToken)
     {
+        await claimAccessAuthorizationService.AuthorizeAsync(
+            ClaimAccessQueryFactory.Create(claimReference, User),
+            cancellationToken);
+
         var result = await claimSubmissionService.GetTrackingAsync(claimReference, cancellationToken);
         if (result is null)
         {

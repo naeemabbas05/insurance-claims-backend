@@ -6,6 +6,7 @@ using Chubb.Apac.ClaimsManagement.Domain.Common;
 using Chubb.Apac.ClaimsManagement.Domain.Entities;
 using Chubb.Apac.ClaimsManagement.Domain.Enums;
 using Chubb.Apac.ClaimsManagement.Domain.ValueObjects;
+using Chubb.Apac.ClaimsManagement.Application.Integration;
 using FluentValidation;
 
 namespace Chubb.Apac.ClaimsManagement.Application.Claims.Submit;
@@ -13,6 +14,7 @@ namespace Chubb.Apac.ClaimsManagement.Application.Claims.Submit;
 public sealed class ClaimSubmissionService(
     IClaimSubmissionRepository repository,
     IValidator<SubmitClaimCommand> validator,
+    IClaimIntegrationEventOutbox eventOutbox,
     TimeProvider timeProvider) : IClaimSubmissionService
 {
     public async Task<ClaimSubmissionResult> SubmitAsync(
@@ -69,6 +71,16 @@ public sealed class ClaimSubmissionService(
             Money.Create(command.EstimatedLossAmount, currencyCode),
             ClaimantDetails.Create(ClaimantRole.PolicyHolder, claimantName, contact));
 
+        eventOutbox.Enqueue(new ClaimSubmittedV1(
+            Guid.NewGuid(),
+            claim.ReportedAtUtc,
+            claim.Id,
+            claim.Number.Value,
+            claim.Policy.MarketCode.Value,
+            claim.Claimants.Single().Id,
+            claim.Type.ToString(),
+            claim.EstimatedLoss.Amount,
+            claim.EstimatedLoss.Currency.Value));
         var savedSubmission = await repository.SaveIdempotentlyAsync(
             claim,
             idempotencyKeyHash,
