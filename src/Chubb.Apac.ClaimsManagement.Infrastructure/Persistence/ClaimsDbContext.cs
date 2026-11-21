@@ -1,6 +1,7 @@
 using Chubb.Apac.ClaimsManagement.Domain.Entities;
 using Chubb.Apac.ClaimsManagement.Domain.ValueObjects;
 using Microsoft.EntityFrameworkCore;
+using StatusHistoryEntity = Chubb.Apac.ClaimsManagement.Domain.Entities.ClaimStatusHistory;
 
 namespace Chubb.Apac.ClaimsManagement.Infrastructure.Persistence;
 
@@ -35,10 +36,52 @@ public sealed class ClaimsDbContext(DbContextOptions<ClaimsDbContext> options) :
 
     public DbSet<OutboxMessage> OutboxMessages => Set<OutboxMessage>();
 
+    public override int SaveChanges(bool acceptAllChangesOnSuccess)
+    {
+        MarkNewClaimChildrenAsAdded();
+        return base.SaveChanges(acceptAllChangesOnSuccess);
+    }
+
+    public override Task<int> SaveChangesAsync(
+        bool acceptAllChangesOnSuccess,
+        CancellationToken cancellationToken = default)
+    {
+        MarkNewClaimChildrenAsAdded();
+        return base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken);
+    }
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.HasDefaultSchema("claims");
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(ClaimsDbContext).Assembly);
         base.OnModelCreating(modelBuilder);
     }
+
+    private void MarkNewClaimChildrenAsAdded()
+    {
+        ChangeTracker.DetectChanges();
+
+        foreach (var entry in ChangeTracker.Entries()
+                     .Where(entry =>
+                         entry.State == EntityState.Modified &&
+                         IsClaimChild(entry.Entity)))
+        {
+            var rowVersion = entry.Property("RowVersion");
+            if (rowVersion.CurrentValue is null && rowVersion.OriginalValue is null)
+            {
+                // Client-generated child IDs can make newly appended entities look modified.
+                entry.State = EntityState.Added;
+            }
+        }
+    }
+
+    private static bool IsClaimChild(object entity) =>
+        entity is Claimant or
+            ClaimDocument or
+            ClaimAssignment or
+            ClaimAssessment or
+            StatusHistoryEntity or
+            ClaimAuditEntry or
+            ClaimInformationRequest or
+            ClaimSettlement;
 }

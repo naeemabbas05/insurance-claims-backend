@@ -57,6 +57,19 @@ public sealed class ClaimDomainTests
     }
 
     [Fact]
+    public void ClaimRejectsInvalidLifecycleTransitionWithoutChangingStatus()
+    {
+        var claim = CreateClaim(CreatePolicy(PolicyType.Motor), ClaimType.Motor);
+        var handler = CreateStaff(StaffRole.ClaimsHandler, "MY");
+
+        Assert.Throws<DomainRuleViolationException>(() =>
+            claim.ChangeStatus(ClaimStatus.Settled, handler, "Invalid direct transition.", Reported.AddDays(1)));
+
+        Assert.Equal(ClaimStatus.Submitted, claim.Status);
+        Assert.Single(claim.StatusHistory);
+    }
+
+    [Fact]
     public void ApprovalAndSettlementEnforceAssessmentAuthorizationAndFinancialLimits()
     {
         var claim = CreateClaim(CreatePolicy(PolicyType.Motor), ClaimType.Motor);
