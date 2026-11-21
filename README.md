@@ -74,6 +74,19 @@ Lifecycle operations enforce role and market rules in the Domain aggregate, and 
 
 Lifecycle writes require an authenticated principal carrying `staff_user_id` (or `NameIdentifier`) for staff actions; claimant information responses require `claimant_id`. The starter host does not configure an authentication provider, so wire one before enabling these operations in a deployed environment.
 
+## Claims staff operations
+
+Staff APIs require an authenticated principal carrying `staff_user_id` (or `NameIdentifier`) and enforce the actor's active markets. Queue and officer claim lists are paged with `page` (1-based) and `pageSize` (1-100).
+
+- `GET /api/v1/staff/claims/incoming?marketCode=MY&page=1&pageSize=20` lists submitted claims.
+- `GET /api/v1/staff/claims/unassigned?marketCode=MY&page=1&pageSize=20` lists non-closed, non-settled claims with no active assignments.
+- `GET /api/v1/staff/officers/{officerId}/claims?marketCode=MY&page=1&pageSize=20` lists an officer's active assignments.
+- `GET /api/v1/staff/officers/{officerId}/workload?marketCode=MY` returns active claim and role counts.
+- `POST /api/v1/staff/claims/{claimReference}/assignments` assigns an officer and role; `POST .../assignments/{assignmentId}/reassign` reassigns that role to another officer.
+- `GET /api/v1/staff/claims/{claimReference}/assignments` returns assignment history, including prior officers and unassignment timestamps.
+
+Only one active assignment per role is permitted on a claim. Assignment changes update the claim's concurrency version; stale concurrent changes return `409 Conflict`. Reassignment closes the prior assignment record and creates a new one so history is preserved.
+
 The infrastructure layer reads `ConnectionStrings__ClaimsDatabase` from standard ASP.NET Core configuration. Set the environment variable to override the Development LocalDB value:
 
 ```powershell

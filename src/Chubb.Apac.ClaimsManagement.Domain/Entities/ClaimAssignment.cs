@@ -44,7 +44,10 @@ public sealed class ClaimAssignment : Entity
 
     internal void Unassign(DateTimeOffset unassignedAtUtc)
     {
-        DomainRule.Require(IsActive, "Claim assignment is already inactive.");
+        if (!IsActive)
+        {
+            throw new AssignmentConflictException("Claim assignment is already inactive.");
+        }
         DomainRule.Utc(unassignedAtUtc, nameof(unassignedAtUtc));
         DomainRule.Require(unassignedAtUtc >= AssignedAtUtc, "Unassignment cannot precede assignment.");
         UnassignedAtUtc = unassignedAtUtc;

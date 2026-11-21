@@ -1,6 +1,7 @@
 using Chubb.Apac.ClaimsManagement.Infrastructure.Persistence;
 using Chubb.Apac.ClaimsManagement.Application.Claims.Submit;
 using Chubb.Apac.ClaimsManagement.Application.Claims.Lifecycle;
+using Chubb.Apac.ClaimsManagement.Application.Claims.Staff;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -21,6 +22,7 @@ public static class DependencyInjection
             options.UseSqlServer(connectionString));
         services.AddScoped<IClaimSubmissionRepository, ClaimSubmissionRepository>();
         services.AddScoped<IClaimLifecycleRepository, ClaimLifecycleRepository>();
+        services.AddScoped<IClaimStaffOperationsRepository, ClaimStaffOperationsRepository>();
 
         return services;
     }

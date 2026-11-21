@@ -28,6 +28,7 @@ internal sealed class ClaimConfiguration : IEntityTypeConfiguration<Claim>
             .HasMaxLength(4000)
             .IsRequired();
         builder.Property(claim => claim.CreatedAtUtc).IsRequired();
+        builder.Property(claim => claim.AssignmentVersion).IsRequired();
 
         builder.OwnsOne(claim => claim.EstimatedLoss, amount =>
         {
