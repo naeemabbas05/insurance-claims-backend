@@ -33,6 +33,8 @@ public sealed class ClaimsDbContext(DbContextOptions<ClaimsDbContext> options) :
     public DbSet<ClaimSubmissionIdempotencyRecord> ClaimSubmissionIdempotencyRecords =>
         Set<ClaimSubmissionIdempotencyRecord>();
 
+    public DbSet<OutboxMessage> OutboxMessages => Set<OutboxMessage>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.HasDefaultSchema("claims");

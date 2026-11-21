@@ -1,4 +1,5 @@
 using Chubb.Apac.ClaimsManagement.Application.Claims.Lifecycle;
+using Chubb.Apac.ClaimsManagement.Application.Integration;
 using Chubb.Apac.ClaimsManagement.Domain.Entities;
 using Chubb.Apac.ClaimsManagement.Domain.Enums;
 using Chubb.Apac.ClaimsManagement.Domain.ValueObjects;
@@ -14,6 +15,7 @@ public sealed class ClaimStaffOperationsService(
     IValidator<ClaimAssignmentHistoryQuery> assignmentHistoryValidator,
     IValidator<AssignClaimCommand> assignValidator,
     IValidator<ReassignClaimCommand> reassignValidator,
+    IClaimIntegrationEventOutbox eventOutbox,
     TimeProvider timeProvider) : IClaimStaffOperationsService
 {
     public async Task<PagedResult<StaffClaimListItem>> GetIncomingClaimsAsync(
@@ -136,11 +138,13 @@ public sealed class ClaimStaffOperationsService(
             command.ActorStaffUserId,
             cancellationToken);
         var officer = await GetOfficerAsync(command.OfficerId, cancellationToken);
+        var assignedAtUtc = timeProvider.GetUtcNow();
         var assignment = claim.Assign(
             officer,
             command.Role!.Value,
             actor,
-            timeProvider.GetUtcNow());
+            assignedAtUtc);
+        EnqueueClaimAssignedEvent(claim, assignment, assignedAtUtc);
         await repository.SaveChangesAsync(cancellationToken);
         return ToAssignmentResult(claim, assignment, actor.Id);
     }
@@ -160,11 +164,13 @@ public sealed class ClaimStaffOperationsService(
         }
 
         var newOfficer = await GetOfficerAsync(command.NewOfficerId, cancellationToken);
+        var assignedAtUtc = timeProvider.GetUtcNow();
         var assignment = claim.Reassign(
             command.AssignmentId,
             newOfficer,
             actor,
-            timeProvider.GetUtcNow());
+            assignedAtUtc);
+        EnqueueClaimAssignedEvent(claim, assignment, assignedAtUtc);
         await repository.SaveChangesAsync(cancellationToken);
         return ToAssignmentResult(claim, assignment, actor.Id);
     }
@@ -286,6 +292,20 @@ public sealed class ClaimStaffOperationsService(
             assignment.Role,
             assignment.AssignedAtUtc,
             actorStaffUserId);
+
+    private void EnqueueClaimAssignedEvent(
+        Claim claim,
+        ClaimAssignment assignment,
+        DateTimeOffset occurredAtUtc) =>
+        eventOutbox.Enqueue(new ClaimAssignedV1(
+            Guid.NewGuid(),
+            occurredAtUtc,
+            claim.Id,
+            claim.Number.Value,
+            claim.Policy.MarketCode.Value,
+            assignment.Id,
+            assignment.StaffUserId,
+            assignment.Role.ToString()));
 
     private static int GetSkip(int page, int pageSize) => checked((page - 1) * pageSize);
 }

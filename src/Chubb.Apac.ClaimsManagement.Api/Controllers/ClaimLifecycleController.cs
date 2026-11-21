@@ -1,7 +1,10 @@
 using System.Security.Claims;
 using Asp.Versioning;
+using Chubb.Apac.ClaimsManagement.Api.Infrastructure;
 using Chubb.Apac.ClaimsManagement.Api.Models;
 using Chubb.Apac.ClaimsManagement.Application.Claims.Lifecycle;
+using Chubb.Apac.ClaimsManagement.Application.Security;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Chubb.Apac.ClaimsManagement.Api.Controllers;
@@ -9,17 +12,26 @@ namespace Chubb.Apac.ClaimsManagement.Api.Controllers;
 [ApiController]
 [ApiVersion(1.0)]
 [Route("api/v{version:apiVersion}/claims/{claimReference}")]
-public sealed class ClaimLifecycleController(IClaimLifecycleService lifecycleService) : ControllerBase
+public sealed class ClaimLifecycleController(
+    IClaimLifecycleService lifecycleService,
+    IClaimAccessAuthorizationService claimAccessAuthorizationService) : ControllerBase
 {
     [HttpGet("history")]
+    [Authorize(Roles = "Claimant,ClaimsOfficer,Manager")]
     [ProducesResponseType<IReadOnlyList<ClaimStatusHistoryItem>>(StatusCodes.Status200OK)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<IReadOnlyList<ClaimStatusHistoryItem>>> GetStatusHistory(
         string claimReference,
-        CancellationToken cancellationToken) =>
-        Ok(await lifecycleService.GetStatusHistoryAsync(claimReference, cancellationToken));
+        CancellationToken cancellationToken)
+    {
+        await claimAccessAuthorizationService.AuthorizeAsync(
+            ClaimAccessQueryFactory.Create(claimReference, User),
+            cancellationToken);
+        return Ok(await lifecycleService.GetStatusHistoryAsync(claimReference, cancellationToken));
+    }
 
     [HttpGet("audit")]
+    [Authorize(Roles = "ClaimsOfficer,Manager")]
     [ProducesResponseType<IReadOnlyList<ClaimAuditHistoryItem>>(StatusCodes.Status200OK)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status403Forbidden)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]
@@ -32,6 +44,10 @@ public sealed class ClaimLifecycleController(IClaimLifecycleService lifecycleSer
             return Unauthorized();
         }
 
+        await claimAccessAuthorizationService.AuthorizeAsync(
+            ClaimAccessQueryFactory.Create(claimReference, User),
+            cancellationToken);
+
         return Ok(await lifecycleService.GetAuditHistoryAsync(
             claimReference,
             staffUserId,
@@ -39,6 +55,7 @@ public sealed class ClaimLifecycleController(IClaimLifecycleService lifecycleSer
     }
 
     [HttpPost("assessments")]
+    [Authorize(Roles = "ClaimsOfficer,Manager")]
     [ProducesResponseType<ClaimLifecycleResult>(StatusCodes.Status200OK)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status400BadRequest)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status401Unauthorized)]
@@ -55,6 +72,7 @@ public sealed class ClaimLifecycleController(IClaimLifecycleService lifecycleSer
             return Unauthorized();
         }
 
+        await AuthorizeStaffClaimAsync(claimReference, cancellationToken);
         var result = await lifecycleService.RecordAssessmentAsync(
             new RecordClaimAssessmentCommand(
                 claimReference,
@@ -68,6 +86,7 @@ public sealed class ClaimLifecycleController(IClaimLifecycleService lifecycleSer
     }
 
     [HttpPost("approval")]
+    [Authorize(Roles = "ClaimsOfficer,Manager")]
     [ProducesResponseType<ClaimLifecycleResult>(StatusCodes.Status200OK)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status400BadRequest)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status401Unauthorized)]
@@ -84,6 +103,7 @@ public sealed class ClaimLifecycleController(IClaimLifecycleService lifecycleSer
             return Unauthorized();
         }
 
+        await AuthorizeStaffClaimAsync(claimReference, cancellationToken);
         return Ok(await lifecycleService.ApproveAsync(
             new ApproveClaimCommand(
                 claimReference,
@@ -95,6 +115,7 @@ public sealed class ClaimLifecycleController(IClaimLifecycleService lifecycleSer
     }
 
     [HttpPost("rejection")]
+    [Authorize(Roles = "ClaimsOfficer,Manager")]
     [ProducesResponseType<ClaimLifecycleResult>(StatusCodes.Status200OK)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status400BadRequest)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status401Unauthorized)]
@@ -111,12 +132,14 @@ public sealed class ClaimLifecycleController(IClaimLifecycleService lifecycleSer
             return Unauthorized();
         }
 
+        await AuthorizeStaffClaimAsync(claimReference, cancellationToken);
         return Ok(await lifecycleService.RejectAsync(
             new RejectClaimCommand(claimReference, staffUserId, request.Reason ?? string.Empty),
             cancellationToken));
     }
 
     [HttpPost("information-requests")]
+    [Authorize(Roles = "ClaimsOfficer,Manager")]
     [ProducesResponseType<ClaimLifecycleResult>(StatusCodes.Status200OK)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status400BadRequest)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status401Unauthorized)]
@@ -133,6 +156,7 @@ public sealed class ClaimLifecycleController(IClaimLifecycleService lifecycleSer
             return Unauthorized();
         }
 
+        await AuthorizeStaffClaimAsync(claimReference, cancellationToken);
         return Ok(await lifecycleService.RequestInformationAsync(
             new RequestClaimInformationCommand(
                 claimReference,
@@ -144,6 +168,7 @@ public sealed class ClaimLifecycleController(IClaimLifecycleService lifecycleSer
     }
 
     [HttpPost("information-requests/{requestId:guid}/responses")]
+    [Authorize(Roles = "Claimant")]
     [ProducesResponseType<ClaimLifecycleResult>(StatusCodes.Status200OK)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status400BadRequest)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status401Unauthorized)]
@@ -156,10 +181,11 @@ public sealed class ClaimLifecycleController(IClaimLifecycleService lifecycleSer
         [FromBody] RespondToClaimInformationRequest request,
         CancellationToken cancellationToken)
     {
-        if (!TryGetClaimantId(out var claimantId))
-        {
-            return Unauthorized();
-        }
+        var access = await claimAccessAuthorizationService.AuthorizeAsync(
+            ClaimAccessQueryFactory.CreateClaimantQuery(claimReference, User),
+            cancellationToken);
+        var claimantId = access.ClaimantId
+            ?? throw new ClaimAccessDeniedException();
 
         return Ok(await lifecycleService.RespondToInformationAsync(
             new RespondToClaimInformationCommand(
@@ -171,6 +197,7 @@ public sealed class ClaimLifecycleController(IClaimLifecycleService lifecycleSer
     }
 
     [HttpDelete("information-requests/{requestId:guid}")]
+    [Authorize(Roles = "ClaimsOfficer,Manager")]
     [ProducesResponseType<ClaimLifecycleResult>(StatusCodes.Status200OK)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status403Forbidden)]
@@ -186,12 +213,14 @@ public sealed class ClaimLifecycleController(IClaimLifecycleService lifecycleSer
             return Unauthorized();
         }
 
+        await AuthorizeStaffClaimAsync(claimReference, cancellationToken);
         return Ok(await lifecycleService.CancelInformationRequestAsync(
             new CancelClaimInformationCommand(claimReference, staffUserId, requestId),
             cancellationToken));
     }
 
     [HttpPost("settlements")]
+    [Authorize(Roles = "ClaimsOfficer,Manager")]
     [ProducesResponseType<ClaimLifecycleResult>(StatusCodes.Status200OK)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status400BadRequest)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status401Unauthorized)]
@@ -208,6 +237,7 @@ public sealed class ClaimLifecycleController(IClaimLifecycleService lifecycleSer
             return Unauthorized();
         }
 
+        await AuthorizeStaffClaimAsync(claimReference, cancellationToken);
         return Ok(await lifecycleService.ProposeSettlementAsync(
             new ProposeClaimSettlementCommand(
                 claimReference,
@@ -220,6 +250,7 @@ public sealed class ClaimLifecycleController(IClaimLifecycleService lifecycleSer
     }
 
     [HttpPost("settlements/{settlementId:guid}/approval")]
+    [Authorize(Roles = "ClaimsOfficer,Manager")]
     [ProducesResponseType<ClaimLifecycleResult>(StatusCodes.Status200OK)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status403Forbidden)]
@@ -235,12 +266,14 @@ public sealed class ClaimLifecycleController(IClaimLifecycleService lifecycleSer
             return Unauthorized();
         }
 
+        await AuthorizeStaffClaimAsync(claimReference, cancellationToken);
         return Ok(await lifecycleService.ApproveSettlementAsync(
             new ApproveClaimSettlementCommand(claimReference, staffUserId, settlementId),
             cancellationToken));
     }
 
     [HttpPost("settlements/{settlementId:guid}/payment")]
+    [Authorize(Roles = "ClaimsOfficer,Manager")]
     [ProducesResponseType<ClaimLifecycleResult>(StatusCodes.Status200OK)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status403Forbidden)]
@@ -256,12 +289,14 @@ public sealed class ClaimLifecycleController(IClaimLifecycleService lifecycleSer
             return Unauthorized();
         }
 
+        await AuthorizeStaffClaimAsync(claimReference, cancellationToken);
         return Ok(await lifecycleService.PaySettlementAsync(
             new PayClaimSettlementCommand(claimReference, staffUserId, settlementId),
             cancellationToken));
     }
 
     [HttpDelete("settlements/{settlementId:guid}")]
+    [Authorize(Roles = "ClaimsOfficer,Manager")]
     [ProducesResponseType<ClaimLifecycleResult>(StatusCodes.Status200OK)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status403Forbidden)]
@@ -277,12 +312,14 @@ public sealed class ClaimLifecycleController(IClaimLifecycleService lifecycleSer
             return Unauthorized();
         }
 
+        await AuthorizeStaffClaimAsync(claimReference, cancellationToken);
         return Ok(await lifecycleService.CancelSettlementAsync(
             new CancelClaimSettlementCommand(claimReference, staffUserId, settlementId),
             cancellationToken));
     }
 
     [HttpPost("workflow-status")]
+    [Authorize(Roles = "ClaimsOfficer,Manager")]
     [ProducesResponseType<ClaimLifecycleResult>(StatusCodes.Status200OK)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status400BadRequest)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status401Unauthorized)]
@@ -299,6 +336,7 @@ public sealed class ClaimLifecycleController(IClaimLifecycleService lifecycleSer
             return Unauthorized();
         }
 
+        await AuthorizeStaffClaimAsync(claimReference, cancellationToken);
         return Ok(await lifecycleService.ChangeWorkflowStatusAsync(
             new ChangeClaimWorkflowStatusCommand(
                 claimReference,
@@ -316,15 +354,20 @@ public sealed class ClaimLifecycleController(IClaimLifecycleService lifecycleSer
             return false;
         }
 
-        var value = User.FindFirstValue("staff_user_id") ?? User.FindFirstValue(ClaimTypes.NameIdentifier);
-        return Guid.TryParse(value, out staffUserId) && staffUserId != Guid.Empty;
+        var value = ClaimAccessQueryFactory.GetStaffUserId(User);
+        if (value.HasValue)
+        {
+            staffUserId = value.Value;
+            return true;
+        }
+
+        return false;
     }
 
-    private bool TryGetClaimantId(out Guid claimantId)
-    {
-        claimantId = Guid.Empty;
-        return User.Identity?.IsAuthenticated == true &&
-               Guid.TryParse(User.FindFirstValue("claimant_id"), out claimantId) &&
-               claimantId != Guid.Empty;
-    }
+    private Task<ClaimAccessResult> AuthorizeStaffClaimAsync(
+        string claimReference,
+        CancellationToken cancellationToken) =>
+        claimAccessAuthorizationService.AuthorizeAsync(
+            ClaimAccessQueryFactory.Create(claimReference, User),
+            cancellationToken);
 }

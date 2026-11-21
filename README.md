@@ -20,6 +20,7 @@ Claims require an active policy covering the incident, matching claim and policy
 ## Run locally
 
 Requires the .NET 10 SDK. The Development configuration uses SQL Server LocalDB; the API does not connect to the database during startup.
+In Development, JWT authority and audience settings are optional so the API, health checks, and Swagger can run without an identity provider; authenticated endpoints remain unavailable until JWT settings are supplied. Outside Development, both settings are required at startup. See [Authentication and authorization](#authentication-and-authorization) to configure them.
 
 ```powershell
 dotnet run --project src\Chubb.Apac.ClaimsManagement.Api
@@ -72,11 +73,11 @@ Lifecycle operations enforce role and market rules in the Domain aggregate, and 
 - `POST /api/v1/claims/{claimReference}/settlements` proposes a settlement. The total of active settlements cannot exceed the approved amount. Settlement approval, payment, and cancellation use `POST .../settlements/{settlementId}/approval`, `POST .../payment`, and `DELETE .../settlements/{settlementId}`.
 - `POST /api/v1/claims/{claimReference}/workflow-status` supports handler-driven reopening to `underReview` and closing.
 
-Lifecycle writes require an authenticated principal carrying `staff_user_id` (or `NameIdentifier`) for staff actions; claimant information responses require `claimant_id`. The starter host does not configure an authentication provider, so wire one before enabling these operations in a deployed environment.
+Lifecycle writes require a JWT with the `ClaimsOfficer` or `Manager` role and a `staff_user_id` claim (a UUID `sub` is also accepted). Claimant information responses require the `Claimant` role and a verified owner identity. Staff access is checked against the staff user's active market memberships and operational role in the database.
 
 ## Claims staff operations
 
-Staff APIs require an authenticated principal carrying `staff_user_id` (or `NameIdentifier`) and enforce the actor's active markets. Queue and officer claim lists are paged with `page` (1-based) and `pageSize` (1-100).
+Staff APIs require the `ClaimsOfficer` or `Manager` JWT role and a staff identity (`staff_user_id` or UUID `sub`). The API role must agree with the staff user's operational role, and the actor's active markets are checked. Queue and officer claim lists are paged with `page` (1-based) and `pageSize` (1-100).
 
 - `GET /api/v1/staff/claims/incoming?marketCode=MY&page=1&pageSize=20` lists submitted claims.
 - `GET /api/v1/staff/claims/unassigned?marketCode=MY&page=1&pageSize=20` lists non-closed, non-settled claims with no active assignments.
@@ -105,6 +106,34 @@ The infrastructure layer reads `ConnectionStrings__ClaimsDatabase` from standard
 $env:ConnectionStrings__ClaimsDatabase = "Server=.\SQLEXPRESS;Database=ChubbClaimsManagement;Trusted_Connection=True;TrustServerCertificate=True;Encrypt=True"
 ```
 
+## Authentication and authorization
+
+The API validates JWT bearer tokens against an external OpenID Connect authority. Configure these environment variables before starting the API:
+
+```powershell
+$env:Jwt__Authority = "https://identity.example.com"
+$env:Jwt__Audience = "chubb-apac-claims-api"
+$env:Jwt__RoleClaimType = "role"
+```
+
+`Jwt:Authority` must use HTTPS outside Development; no issuer secrets or signing keys are stored in this repository. Tokens must have one of the exact role values `Claimant`, `ClaimsOfficer`, or `Manager`. The role claim name is configurable (for example, `roles`). Identity claims are not URI-mapped.
+
+- Claimant access uses a trusted `claimant_id` UUID, or a matching `email` only when `email_verified` is `true`. Claim submission also requires that verified email to match the submitted claimant email.
+- Staff identity is taken from `staff_user_id`, UUID `sub`, or the standard `NameIdentifier` claim. The matching active `StaffUser` record must have the operational role appropriate to the token role and be assigned to the requested claim market.
+- `ClaimsOfficer` maps to operational handler, adjuster, assessor, approver, or finance roles; `Manager` maps to administrator, approver, or finance roles. Domain operation-specific permissions still apply.
+- Claimant routes are limited to the authenticated claimant's claims. Staff claim reads and changes are restricted by token role and the persisted staff market membership.
+
+## Kafka events and transactional outbox
+
+Claim submission, assignment/reassignment, status changes, approval, rejection, and settlement enqueue versioned event contracts in the same SQL transaction as the claim update. The background publisher sends outbox records to Kafka; a broker outage does not undo a committed claim change. Configure the broker and topic with:
+
+```powershell
+$env:Kafka__BootstrapServers = "localhost:9092"
+$env:Kafka__ClaimEventsTopic = "claims.events"
+```
+
+The versioned contracts are `ClaimSubmittedV1`, `ClaimAssignedV1`, `ClaimStatusChangedV1`, `ClaimApprovedV1`, `ClaimRejectedV1`, and `ClaimSettledV1`. Delivery is at-least-once: consumers should deduplicate using the `EventId` in the event envelope (also provided in the Kafka `event-id` header). Messages are keyed by claim reference. If Kafka is not configured or available, events remain persisted and publishing is retried with backoff.
+
 ## SQL Server persistence
 
 EF Core migrations are stored with Infrastructure. Restore the repository-pinned EF tool and apply migrations with a configured SQL Server connection:
@@ -114,7 +143,7 @@ dotnet tool restore
 dotnet ef database update --project src\Chubb.Apac.ClaimsManagement.Infrastructure --startup-project src\Chubb.Apac.ClaimsManagement.Api --context ClaimsDbContext
 ```
 
-The migrations create the claims schema, rowversion concurrency columns, indexes and foreign keys, and seed six APAC markets, sample Motor and Property policies, and sample staff users. Claim submission uses a repository to atomically persist claims and idempotency records.
+The migrations create the claims and transactional outbox schemas, rowversion concurrency columns, indexes and foreign keys, and seed six APAC markets, sample Motor and Property policies, and sample staff users. Claim submission uses a repository to atomically persist claims and idempotency records.
 
 ## Build
 

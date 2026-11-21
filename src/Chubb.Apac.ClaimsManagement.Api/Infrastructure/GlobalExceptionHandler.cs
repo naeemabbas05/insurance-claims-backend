@@ -2,6 +2,7 @@ using Chubb.Apac.ClaimsManagement.Application.Claims.Submit;
 using Chubb.Apac.ClaimsManagement.Application.Claims.Lifecycle;
 using Chubb.Apac.ClaimsManagement.Application.Claims.Staff;
 using Chubb.Apac.ClaimsManagement.Application.ManagementReporting;
+using Chubb.Apac.ClaimsManagement.Application.Security;
 using Chubb.Apac.ClaimsManagement.Domain.Common;
 using FluentValidation;
 using Microsoft.AspNetCore.Diagnostics;
@@ -35,6 +36,8 @@ public sealed class GlobalExceptionHandler(
                 StatusCodes.Status403Forbidden,
             StaffClaimAccessDeniedException => StatusCodes.Status403Forbidden,
             ManagementReportAccessDeniedException => StatusCodes.Status403Forbidden,
+            ClaimAccessNotFoundException => StatusCodes.Status404NotFound,
+            ClaimAccessDeniedException => StatusCodes.Status403Forbidden,
             DomainAuthorizationException => StatusCodes.Status403Forbidden,
             MarketNotConfiguredException or DomainRuleViolationException =>
                 StatusCodes.Status422UnprocessableEntity,

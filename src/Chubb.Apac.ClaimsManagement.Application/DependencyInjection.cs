@@ -2,6 +2,7 @@ using Chubb.Apac.ClaimsManagement.Application.Claims.Submit;
 using Chubb.Apac.ClaimsManagement.Application.Claims.Lifecycle;
 using Chubb.Apac.ClaimsManagement.Application.Claims.Staff;
 using Chubb.Apac.ClaimsManagement.Application.ManagementReporting;
+using Chubb.Apac.ClaimsManagement.Application.Security;
 using FluentValidation;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -17,6 +18,7 @@ public static class DependencyInjection
         services.AddScoped<IClaimLifecycleService, ClaimLifecycleService>();
         services.AddScoped<IClaimStaffOperationsService, ClaimStaffOperationsService>();
         services.AddScoped<IManagementClaimsReportingService, ManagementClaimsReportingService>();
+        services.AddScoped<IClaimAccessAuthorizationService, ClaimAccessAuthorizationService>();
         services.TryAddSingleton<TimeProvider>(TimeProvider.System);
         return services;
     }

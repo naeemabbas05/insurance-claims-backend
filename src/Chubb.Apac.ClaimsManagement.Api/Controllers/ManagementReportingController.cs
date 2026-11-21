@@ -1,6 +1,7 @@
-using System.Security.Claims;
 using Asp.Versioning;
+using Chubb.Apac.ClaimsManagement.Api.Infrastructure;
 using Chubb.Apac.ClaimsManagement.Application.ManagementReporting;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Chubb.Apac.ClaimsManagement.Api.Controllers;
@@ -8,6 +9,7 @@ namespace Chubb.Apac.ClaimsManagement.Api.Controllers;
 [ApiController]
 [ApiVersion(1.0)]
 [Route("api/v{version:apiVersion}/management/reports")]
+[Authorize(Roles = "Manager")]
 public sealed class ManagementReportingController(
     IManagementClaimsReportingService reportingService) : ControllerBase
 {
@@ -40,7 +42,13 @@ public sealed class ManagementReportingController(
             return false;
         }
 
-        var value = User.FindFirstValue("staff_user_id") ?? User.FindFirstValue(ClaimTypes.NameIdentifier);
-        return Guid.TryParse(value, out staffUserId) && staffUserId != Guid.Empty;
+        var value = ClaimAccessQueryFactory.GetStaffUserId(User);
+        if (value.HasValue)
+        {
+            staffUserId = value.Value;
+            return true;
+        }
+
+        return false;
     }
 }
