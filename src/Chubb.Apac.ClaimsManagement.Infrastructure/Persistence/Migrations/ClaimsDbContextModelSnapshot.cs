@@ -79,6 +79,8 @@ namespace Chubb.Apac.ClaimsManagement.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("Status", "ReportedAtUtc");
 
+                    b.HasIndex("ReportedAtUtc", "PolicyId", "Status", "Type");
+
                     b.ToTable("Claims", "claims");
                 });
 
@@ -149,6 +151,9 @@ namespace Chubb.Apac.ClaimsManagement.Infrastructure.Persistence.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("StaffUserId");
+
+                    b.HasIndex("StaffUserId", "ClaimId")
+                        .HasFilter("[UnassignedAtUtc] IS NULL");
 
                     b.HasIndex("ClaimId", "StaffUserId", "Role")
                         .IsUnique()
