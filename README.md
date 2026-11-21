@@ -1,11 +1,11 @@
 # Chubb APAC Claims Management
 
-Initial .NET 10 modular-monolith backend. The Domain layer now contains the claims model and its business rules; no claim-management HTTP endpoints or application workflows are implemented yet.
+Initial .NET 10 modular-monolith backend with claim submission and tracking endpoints.
 
 ## Architecture
 
 - `Chubb.Apac.ClaimsManagement.Api` is the HTTP host and composition root.
-- `Chubb.Apac.ClaimsManagement.Application` is reserved for use cases and application contracts.
+- `Chubb.Apac.ClaimsManagement.Application` contains claim submission workflows, validation, and persistence contracts.
 - `Chubb.Apac.ClaimsManagement.Domain` contains the claim aggregate, related entities, value objects, market catalog, and domain rules.
 - `Chubb.Apac.ClaimsManagement.Infrastructure` contains SQL Server persistence and external adapters.
 
@@ -30,7 +30,34 @@ dotnet run --project src\Chubb.Apac.ClaimsManagement.Api
 - Readiness: `http://localhost:5187/health/ready`
 - Swagger UI (Development only): `http://localhost:5187/swagger`
 
-The initial readiness check reports API process health only; SQL connectivity is not checked because no database-backed module is implemented yet.
+The readiness check currently reports API process health only; SQL connectivity is not checked.
+
+## Claim submission
+
+Submit a Motor or Property claim with a unique `Idempotency-Key` header. The API validates the configured market, policy coverage, claimant contact information, UTC incident time, estimated loss, and policy currency. A successful request returns `201 Created` with a claim reference and tracking URL. Repeating the same key and payload returns the original claim; using the key with a different payload returns `409 Conflict`.
+
+```http
+POST /api/v1/claims
+Idempotency-Key: submission-key-123
+Content-Type: application/json
+
+{
+  "marketCode": "MY",
+  "policyNumber": "APAC-MY-MOTOR-001",
+  "claimType": "motor",
+  "incidentAtUtc": "2026-03-10T08:30:00Z",
+  "incidentDescription": "Vehicle damage following a road accident.",
+  "claimant": {
+    "name": "Avery Tan",
+    "email": "avery@example.com",
+    "phone": "+60123456789"
+  },
+  "estimatedLossAmount": 1200.00,
+  "currencyCode": "MYR"
+}
+```
+
+Track a submitted claim using `GET /api/v1/claims/{claimReference}`.
 
 The infrastructure layer reads `ConnectionStrings__ClaimsDatabase` from standard ASP.NET Core configuration. Set the environment variable to override the Development LocalDB value:
 
@@ -47,7 +74,7 @@ dotnet tool restore
 dotnet ef database update --project src\Chubb.Apac.ClaimsManagement.Infrastructure --startup-project src\Chubb.Apac.ClaimsManagement.Api --context ClaimsDbContext
 ```
 
-The initial migration creates the claims schema, rowversion concurrency columns, indexes and foreign keys, and seeds six APAC markets, sample Motor and Property policies, and sample staff users. No repositories are added yet; `ClaimsDbContext` is the persistence boundary until use cases require repository abstractions.
+The migrations create the claims schema, rowversion concurrency columns, indexes and foreign keys, and seed six APAC markets, sample Motor and Property policies, and sample staff users. Claim submission uses a repository to atomically persist claims and idempotency records.
 
 ## Build
 

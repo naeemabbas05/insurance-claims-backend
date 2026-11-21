@@ -1,11 +1,14 @@
 using Asp.Versioning;
 using Asp.Versioning.ApiExplorer;
+using Chubb.Apac.ClaimsManagement.Application;
 using Chubb.Apac.ClaimsManagement.Api.Configuration;
 using Chubb.Apac.ClaimsManagement.Api.Infrastructure;
 using Chubb.Apac.ClaimsManagement.Infrastructure;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Options;
 using Serilog;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -23,7 +26,11 @@ builder.Services
 
 builder.Services.AddProblemDetails();
 builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
-builder.Services.AddControllers();
+builder.Services
+    .AddControllers()
+    .AddJsonOptions(options =>
+        options.JsonSerializerOptions.Converters.Add(
+            new JsonStringEnumConverter(JsonNamingPolicy.CamelCase)));
 builder.Services.AddAuthorization();
 builder.Services
     .AddApiVersioning(options =>
@@ -45,6 +52,7 @@ builder.Services
     .AddHealthChecks()
     .AddCheck("self", () => Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Healthy(),
         tags: ["live", "ready"]);
+builder.Services.AddApplication();
 builder.Services.AddInfrastructure(builder.Configuration);
 
 var app = builder.Build();

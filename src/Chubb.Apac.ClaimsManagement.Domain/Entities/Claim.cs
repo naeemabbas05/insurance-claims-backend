@@ -46,6 +46,7 @@ public sealed class Claim : Entity
         Number = null!;
         Policy = null!;
         LossDescription = null!;
+        EstimatedLoss = null!;
     }
 
     private Claim(
@@ -55,10 +56,12 @@ public sealed class Claim : Entity
         DateTimeOffset incidentAtUtc,
         DateTimeOffset reportedAtUtc,
         string lossDescription,
+        Money estimatedLoss,
         ClaimantDetails primaryClaimant)
     {
         ArgumentNullException.ThrowIfNull(number);
         ArgumentNullException.ThrowIfNull(policy);
+        ArgumentNullException.ThrowIfNull(estimatedLoss);
         ArgumentNullException.ThrowIfNull(primaryClaimant);
         DomainRule.Require(Enum.IsDefined(type), "Claim type is invalid.");
         DomainRule.Require(
@@ -70,12 +73,17 @@ public sealed class Claim : Entity
         ReportedAtUtc = DomainRule.Utc(reportedAtUtc, nameof(reportedAtUtc));
         DomainRule.Require(ReportedAtUtc >= IncidentAtUtc, "A claim cannot be reported before the incident.");
         DomainRule.Require(policy.IsInForceAt(IncidentAtUtc), "Policy must be active and in force at the time of loss.");
+        DomainRule.Require(estimatedLoss.Amount > 0, "Estimated loss must be greater than zero.");
+        DomainRule.Require(
+            estimatedLoss.Currency == policy.CoverageLimit.Currency,
+            "Estimated loss must use the policy currency.");
 
         Number = number;
         PolicyId = policy.Id;
         Policy = policy;
         Type = type;
         LossDescription = DomainRule.RequiredText(lossDescription, nameof(lossDescription), 4000);
+        EstimatedLoss = estimatedLoss;
         CreatedAtUtc = ReportedAtUtc;
         Status = ClaimStatus.Submitted;
         _claimants.Add(new Claimant(Id, primaryClaimant, ReportedAtUtc));
@@ -101,6 +109,8 @@ public sealed class Claim : Entity
     public DateTimeOffset ReportedAtUtc { get; private set; }
 
     public string LossDescription { get; private set; }
+
+    public Money EstimatedLoss { get; private set; }
 
     public ClaimStatus Status { get; private set; }
 
@@ -131,6 +141,7 @@ public sealed class Claim : Entity
         DateTimeOffset incidentAtUtc,
         DateTimeOffset reportedAtUtc,
         string lossDescription,
+        Money estimatedLoss,
         ClaimantDetails primaryClaimant)
     {
         var claim = new Claim(
@@ -140,6 +151,7 @@ public sealed class Claim : Entity
             incidentAtUtc,
             reportedAtUtc,
             lossDescription,
+            estimatedLoss,
             primaryClaimant);
         policy.AttachClaim(claim);
         return claim;
