@@ -93,6 +93,16 @@ public sealed class ClaimLifecycleTests
         Assert.Contains(claim.AuditHistory, entry => entry.Action == "AssessmentRecorded");
         Assert.Contains(claim.AuditHistory, entry => entry.Action == "ClaimApproved");
         Assert.Contains(claim.AuditHistory, entry => entry.Action == "SettlementPaid");
+        Assert.Equal(
+            ["ClaimSubmitted", "ClaimApproved", "ClaimSettled"],
+            claim.Notifications.Select(notification => notification.Category));
+
+        var decision = await service.GetDecisionAsync(claim.Number.Value, CancellationToken.None);
+        Assert.Equal(ClaimStatus.Approved, decision.Decision!.Outcome);
+        Assert.Equal(750m, decision.Decision.ApprovedAmount);
+        Assert.Equal("MYR", decision.Decision.CurrencyCode);
+        Assert.Equal("Paid", decision.Decision.SettlementStatus);
+        Assert.DoesNotContain("Coverage confirmed.", decision.Decision.CustomerMessage);
 
         var history = await service.GetStatusHistoryAsync(claim.Number.Value, CancellationToken.None);
         Assert.Equal(
@@ -124,17 +134,47 @@ public sealed class ClaimLifecycleTests
                 "Please provide the repair invoice.",
                 Now.AddDays(3)),
             CancellationToken.None);
+        var requestedAgain = await service.RequestInformationAsync(
+            new RequestClaimInformationCommand(
+                claim.Number.Value,
+                handler.Id,
+                claim.Claimants.Single().Id,
+                "Please provide another document.",
+                Now.AddDays(3)),
+            CancellationToken.None);
+        var claimantRequests = await service.GetInformationRequestsAsync(
+            claim.Number.Value,
+            claim.Claimants.Single().Id,
+            CancellationToken.None);
+        Assert.Equal(2, claimantRequests.Count);
+        Assert.Contains(claimantRequests, item => item.Question == "Please provide another document.");
+        Assert.Contains(claimantRequests, item => item.Question == "Please provide the repair invoice.");
 
-        var responded = await service.RespondToInformationAsync(
+        var firstResponse = await service.RespondToInformationAsync(
             new RespondToClaimInformationCommand(
                 claim.Number.Value,
                 claim.Claimants.Single().Id,
                 requested.ResourceId!.Value,
                 "Invoice uploaded."),
             CancellationToken.None);
+        var responded = await service.RespondToInformationAsync(
+            new RespondToClaimInformationCommand(
+                claim.Number.Value,
+                claim.Claimants.Single().Id,
+                requestedAgain.ResourceId!.Value,
+                "Document uploaded."),
+            CancellationToken.None);
 
         Assert.Equal(ClaimStatus.AwaitingInformation, requested.Status);
+        Assert.Equal(ClaimStatus.AwaitingInformation, requestedAgain.Status);
+        Assert.Equal(ClaimStatus.AwaitingInformation, firstResponse.Status);
         Assert.Equal(ClaimStatus.UnderReview, responded.Status);
+        Assert.All(
+            await service.GetInformationRequestsAsync(
+                claim.Number.Value,
+                claim.Claimants.Single().Id,
+                CancellationToken.None),
+            item => Assert.Equal(InformationRequestStatus.Responded, item.Status));
         Assert.Equal(
             [
                 ClaimStatus.UnderReview.ToString(),
@@ -146,6 +186,16 @@ public sealed class ClaimLifecycleTests
                 .Select(item => item.NewStatus));
         Assert.Contains(claim.AuditHistory, entry => entry.Action == "InformationRequested");
         Assert.Contains(claim.AuditHistory, entry => entry.Action == "InformationResponseReceived");
+        var informationNotifications = claim.Notifications
+            .Where(notification => notification.Category == "InformationRequested")
+            .ToArray();
+        Assert.Equal(2, informationNotifications.Length);
+        Assert.All(informationNotifications, notification =>
+        {
+            Assert.DoesNotContain("repair invoice", notification.Message);
+            Assert.DoesNotContain("another document", notification.Message);
+        });
+        Assert.Null((await service.GetDecisionAsync(claim.Number.Value, CancellationToken.None)).Decision);
     }
 
     [Fact]
@@ -172,6 +222,9 @@ public sealed class ClaimLifecycleTests
         Assert.Equal(ClaimStatus.Declined, rejected.Status);
         Assert.Contains(eventOutbox.Events, item => item is ClaimRejectedV1);
         Assert.Equal(2, eventOutbox.Events.OfType<ClaimStatusChangedV1>().Count());
+        var decision = await service.GetDecisionAsync(claim.Number.Value, CancellationToken.None);
+        Assert.Equal(ClaimStatus.Declined, decision.Decision!.Outcome);
+        Assert.DoesNotContain("The loss is not covered.", decision.Decision.CustomerMessage);
     }
 
     private static ClaimLifecycleService CreateService(

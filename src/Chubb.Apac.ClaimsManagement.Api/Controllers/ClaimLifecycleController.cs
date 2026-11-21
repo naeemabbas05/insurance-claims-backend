@@ -16,6 +16,44 @@ public sealed class ClaimLifecycleController(
     IClaimLifecycleService lifecycleService,
     IClaimAccessAuthorizationService claimAccessAuthorizationService) : ControllerBase
 {
+    [HttpGet("decision")]
+    [Authorize(Roles = "Claimant")]
+    [ProducesResponseType<ClaimDecisionResult>(StatusCodes.Status200OK)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<ClaimDecisionResult>> GetDecision(
+        string claimReference,
+        CancellationToken cancellationToken)
+    {
+        await claimAccessAuthorizationService.AuthorizeAsync(
+            ClaimAccessQueryFactory.CreateClaimantQuery(claimReference, User),
+            cancellationToken);
+        return Ok(await lifecycleService.GetDecisionAsync(claimReference, cancellationToken));
+    }
+
+    [HttpGet("information-requests")]
+    [Authorize(Roles = "Claimant")]
+    [ProducesResponseType<IReadOnlyList<ClaimInformationRequestItem>>(StatusCodes.Status200OK)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<IReadOnlyList<ClaimInformationRequestItem>>> GetInformationRequests(
+        string claimReference,
+        CancellationToken cancellationToken)
+    {
+        var access = await claimAccessAuthorizationService.AuthorizeAsync(
+            ClaimAccessQueryFactory.CreateClaimantQuery(claimReference, User),
+            cancellationToken);
+        var claimantId = access.ClaimantId
+            ?? throw new ClaimAccessDeniedException();
+
+        return Ok(await lifecycleService.GetInformationRequestsAsync(
+            claimReference,
+            claimantId,
+            cancellationToken));
+    }
+
     [HttpGet("history")]
     [Authorize(Roles = "Claimant,ClaimsOfficer,Manager")]
     [ProducesResponseType<IReadOnlyList<ClaimStatusHistoryItem>>(StatusCodes.Status200OK)]

@@ -46,3 +46,68 @@ public sealed record ManagementClaimsReportData(
     IReadOnlyList<CurrencyAmountTotal> ApprovedAmount,
     IReadOnlyList<CurrencyAmountTotal> ApprovedButUnpaidLiability,
     IReadOnlyList<CurrencyAmountTotal> SettledAmount);
+
+public sealed record ClaimAgingBucket(string Label, int ClaimCount);
+
+public sealed record ClaimAgingMarketResult(
+    string MarketCode,
+    int TotalOpenClaims,
+    IReadOnlyList<ClaimAgingBucket> Buckets);
+
+public sealed record ManagementClaimsAgingReportResult(
+    string? MarketCode,
+    DateOnly? FromDate,
+    DateOnly? ToDate,
+    DateTimeOffset AsOfUtc,
+    int TotalOpenClaims,
+    IReadOnlyList<ClaimAgingMarketResult> Markets);
+
+public sealed record ClaimsAgingReportData(
+    int TotalOpenClaims,
+    IReadOnlyList<ClaimAgingMarketResult> Markets);
+
+public sealed record OfficerDecisionPerformance(
+    Guid OfficerId,
+    string OfficerName,
+    int DecisionCount,
+    int ApprovedCount,
+    int DeclinedCount,
+    decimal AverageProcessingDays);
+
+public sealed record ManagementClaimsPerformanceReportResult(
+    string? MarketCode,
+    DateOnly? FromDate,
+    DateOnly? ToDate,
+    int TotalDecisions,
+    IReadOnlyList<OfficerDecisionPerformance> Officers);
+
+public sealed record ClaimsPerformanceReportData(
+    int TotalDecisions,
+    IReadOnlyList<OfficerDecisionPerformance> Officers);
+
+public sealed record ClaimSlaMarketResult(
+    string MarketCode,
+    int TotalOpenClaims,
+    int WithinTarget,
+    int Breached,
+    decimal BreachRatePercentage);
+
+public sealed record ManagementClaimsSlaReportResult(
+    string? MarketCode,
+    DateOnly? FromDate,
+    DateOnly? ToDate,
+    int TargetDays,
+    DateTimeOffset AsOfUtc,
+    int TotalOpenClaims,
+    int WithinTarget,
+    int Breached,
+    decimal BreachRatePercentage,
+    IReadOnlyList<ClaimSlaMarketResult> Markets);
+
+public sealed record ClaimsSlaReportData(
+    int TotalOpenClaims,
+    int WithinTarget,
+    int Breached,
+    IReadOnlyList<ClaimSlaMarketResult> Markets);
+
+public sealed record ManagementReportingOptions(int SlaTargetDays = 14);

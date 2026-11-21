@@ -125,6 +125,14 @@ internal sealed class ClaimConfiguration : IEntityTypeConfiguration<Claim>
             .HasField("_settlements")
             .UsePropertyAccessMode(PropertyAccessMode.Field);
 
+        builder.HasMany(claim => claim.Notifications)
+            .WithOne(notification => notification.Claim)
+            .HasForeignKey(notification => notification.ClaimId)
+            .OnDelete(DeleteBehavior.Cascade);
+        builder.Navigation(claim => claim.Notifications)
+            .HasField("_notifications")
+            .UsePropertyAccessMode(PropertyAccessMode.Field);
+
         builder.HasIndex(claim => claim.Number).IsUnique();
         builder.HasIndex(claim => new { claim.PolicyId, claim.IncidentAtUtc });
         builder.HasIndex(claim => new { claim.Status, claim.ReportedAtUtc });

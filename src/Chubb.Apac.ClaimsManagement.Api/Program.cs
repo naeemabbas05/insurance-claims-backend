@@ -1,6 +1,7 @@
 using Asp.Versioning;
 using Asp.Versioning.ApiExplorer;
 using Chubb.Apac.ClaimsManagement.Application;
+using Chubb.Apac.ClaimsManagement.Application.ManagementReporting;
 using Chubb.Apac.ClaimsManagement.Api.Configuration;
 using Chubb.Apac.ClaimsManagement.Api.Infrastructure;
 using Chubb.Apac.ClaimsManagement.Infrastructure;
@@ -25,6 +26,15 @@ builder.Services
     .Bind(builder.Configuration.GetSection(ServiceOptions.SectionName))
     .Validate(options => !string.IsNullOrWhiteSpace(options.Name), "Service name is required.")
     .ValidateOnStart();
+
+var reportingOptions = new ManagementReportingOptions(
+    builder.Configuration.GetValue("ManagementReporting:SlaTargetDays", 14));
+if (reportingOptions.SlaTargetDays <= 0)
+{
+    throw new InvalidOperationException("ManagementReporting:SlaTargetDays must be greater than zero.");
+}
+
+builder.Services.AddSingleton(reportingOptions);
 
 builder.Services.AddProblemDetails();
 builder.Services.AddExceptionHandler<GlobalExceptionHandler>();

@@ -435,6 +435,62 @@ namespace Chubb.Apac.ClaimsManagement.Infrastructure.Persistence.Migrations
                     b.ToTable("Claimants", "claims");
                 });
 
+            modelBuilder.Entity("Chubb.Apac.ClaimsManagement.Domain.Entities.ClaimantNotification", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Category")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<Guid>("ClaimId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("ClaimantId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset>("CreatedAtUtc")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("DeduplicationKey")
+                        .IsRequired()
+                        .HasMaxLength(160)
+                        .HasColumnType("nvarchar(160)");
+
+                    b.Property<string>("Message")
+                        .IsRequired()
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
+                    b.Property<DateTimeOffset?>("ReadAtUtc")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<byte[]>("RowVersion")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("rowversion");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(160)
+                        .HasColumnType("nvarchar(160)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ClaimId");
+
+                    b.HasIndex("DeduplicationKey")
+                        .IsUnique();
+
+                    b.HasIndex("ClaimantId", "CreatedAtUtc");
+
+                    b.ToTable("ClaimantNotifications", "claims");
+                });
+
             modelBuilder.Entity("Chubb.Apac.ClaimsManagement.Domain.Entities.Policy", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1216,6 +1272,25 @@ namespace Chubb.Apac.ClaimsManagement.Infrastructure.Persistence.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("Chubb.Apac.ClaimsManagement.Domain.Entities.ClaimantNotification", b =>
+                {
+                    b.HasOne("Chubb.Apac.ClaimsManagement.Domain.Entities.Claim", "Claim")
+                        .WithMany("Notifications")
+                        .HasForeignKey("ClaimId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Chubb.Apac.ClaimsManagement.Domain.Entities.Claimant", "Claimant")
+                        .WithMany()
+                        .HasForeignKey("ClaimantId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Claim");
+
+                    b.Navigation("Claimant");
+                });
+
             modelBuilder.Entity("Chubb.Apac.ClaimsManagement.Domain.Entities.Policy", b =>
                 {
                     b.HasOne("Chubb.Apac.ClaimsManagement.Domain.ValueObjects.MarketDefinition", "Market")
@@ -1345,6 +1420,8 @@ namespace Chubb.Apac.ClaimsManagement.Infrastructure.Persistence.Migrations
                     b.Navigation("Documents");
 
                     b.Navigation("InformationRequests");
+
+                    b.Navigation("Notifications");
 
                     b.Navigation("Settlements");
 

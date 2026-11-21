@@ -41,6 +41,7 @@ public sealed class Claim : Entity
     private readonly List<ClaimInformationRequest> _informationRequests = [];
     private readonly List<ClaimSettlement> _settlements = [];
     private readonly List<ClaimAuditEntry> _auditHistory = [];
+    private readonly List<ClaimantNotification> _notifications = [];
 
     private Claim()
     {
@@ -96,6 +97,13 @@ public sealed class Claim : Entity
             ReportedAtUtc,
             changedByStaffUserId: null,
             "Claim submitted."));
+        AddClaimantNotification(
+            _claimants[0],
+            "ClaimSubmitted",
+            "Claim received",
+            "Your claim has been submitted and is being reviewed.",
+            ReportedAtUtc,
+            $"submitted:{Id}:{_claimants[0].Id}");
         RecordAudit("ClaimSubmitted", ReportedAtUtc, details: null);
     }
 
@@ -139,6 +147,8 @@ public sealed class Claim : Entity
 
     public IReadOnlyCollection<ClaimAuditEntry> AuditHistory => _auditHistory.AsReadOnly();
 
+    public IReadOnlyCollection<ClaimantNotification> Notifications => _notifications.AsReadOnly();
+
     public ClaimAssessment? LatestAssessment => _assessments
         .OrderByDescending(assessment => assessment.AssessedAtUtc)
         .FirstOrDefault();
@@ -177,6 +187,37 @@ public sealed class Claim : Entity
         _claimants.Add(claimant);
         RecordAudit("ClaimantAdded", addedAtUtc, claimantId: claimant.Id);
         return claimant;
+    }
+
+    public ClaimantNotification AddClaimantNotification(
+        Claimant claimant,
+        string category,
+        string title,
+        string message,
+        DateTimeOffset createdAtUtc,
+        string deduplicationKey)
+    {
+        ArgumentNullException.ThrowIfNull(claimant);
+        DomainRule.Require(
+            _claimants.Any(item => item.Id == claimant.Id),
+            "Notification recipient does not belong to this claim.");
+        var existing = _notifications.FirstOrDefault(
+            notification => notification.DeduplicationKey == deduplicationKey);
+        if (existing is not null)
+        {
+            return existing;
+        }
+
+        var notification = new ClaimantNotification(
+            this,
+            claimant,
+            category,
+            title,
+            message,
+            createdAtUtc,
+            deduplicationKey);
+        _notifications.Add(notification);
+        return notification;
     }
 
     public ClaimAssignment Assign(

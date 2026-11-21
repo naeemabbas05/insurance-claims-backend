@@ -23,6 +23,81 @@ public sealed class ClaimLifecycleService(
     IClaimIntegrationEventOutbox eventOutbox,
     TimeProvider timeProvider) : IClaimLifecycleService
 {
+    public async Task<ClaimDecisionResult> GetDecisionAsync(
+        string claimReference,
+        CancellationToken cancellationToken)
+    {
+        var claim = await GetClaimAsync(claimReference, cancellationToken);
+        if (claim.Status is not (ClaimStatus.Approved or ClaimStatus.Declined or ClaimStatus.Settled or ClaimStatus.Closed))
+        {
+            return new ClaimDecisionResult(claim.Number.Value, claim.Status, null);
+        }
+
+        var outcome = claim.Status switch
+        {
+            ClaimStatus.Approved or ClaimStatus.Settled => ClaimStatus.Approved,
+            ClaimStatus.Declined => ClaimStatus.Declined,
+            _ => (ClaimStatus?)null
+        };
+        var decisions = claim.StatusHistory
+            .Where(item => item.NewStatus is ClaimStatus.Approved or ClaimStatus.Declined);
+        var decision = outcome.HasValue
+            ? decisions
+                .Where(item => item.NewStatus == outcome.Value)
+                .OrderByDescending(item => item.ChangedAtUtc)
+                .FirstOrDefault()
+            : decisions
+                .OrderByDescending(item => item.ChangedAtUtc)
+                .ThenByDescending(item => item.Id)
+                .FirstOrDefault();
+        if (decision is null)
+        {
+            return new ClaimDecisionResult(claim.Number.Value, claim.Status, null);
+        }
+
+        var approved = decision.NewStatus == ClaimStatus.Approved;
+        var settlementStatus = approved
+            ? claim.Status == ClaimStatus.Settled || claim.Settlements.Any(
+                item => item.Status == SettlementStatus.Paid)
+                ? "Paid"
+                : "Pending"
+            : null;
+
+        return new ClaimDecisionResult(
+            claim.Number.Value,
+            claim.Status,
+            new ClaimDecisionDetails(
+                decision.NewStatus,
+                decision.ChangedAtUtc,
+                approved ? claim.ApprovedAmount?.Amount : null,
+                approved ? claim.ApprovedAmount?.Currency.Value : null,
+                approved
+                    ? "Your claim has been approved."
+                    : "Your claim was not approved. Sign in or contact the claims team for assistance.",
+                settlementStatus));
+    }
+
+    public async Task<IReadOnlyList<ClaimInformationRequestItem>> GetInformationRequestsAsync(
+        string claimReference,
+        Guid claimantId,
+        CancellationToken cancellationToken)
+    {
+        var claim = await GetClaimAsync(claimReference, cancellationToken);
+        return claim.InformationRequests
+            .Where(item => item.RequestedFromClaimantId == claimantId)
+            .OrderByDescending(item => item.RequestedAtUtc)
+            .ThenByDescending(item => item.Id)
+            .Select(item => new ClaimInformationRequestItem(
+                item.Id,
+                item.Question,
+                item.RequestedAtUtc,
+                item.DueAtUtc,
+                item.Status,
+                item.Response,
+                item.RespondedAtUtc))
+            .ToArray();
+    }
+
     public async Task<IReadOnlyList<ClaimStatusHistoryItem>> GetStatusHistoryAsync(
         string claimReference,
         CancellationToken cancellationToken)
@@ -167,6 +242,13 @@ public sealed class ClaimLifecycleService(
             command.Question,
             occurredAtUtc,
             command.DueAtUtc);
+        claim.AddClaimantNotification(
+            claimant,
+            "InformationRequested",
+            "Additional information needed",
+            "We need more information to continue reviewing your claim. Sign in to view the request.",
+            occurredAtUtc,
+            $"information-request:{request.Id}:{claimant.Id}");
         await SaveStatusChangeAsync(
             claim,
             previousStatus,
@@ -397,10 +479,40 @@ public sealed class ClaimLifecycleService(
                 previousStatus.ToString(),
                 claim.Status.ToString(),
                 actorId));
+
+            var historyEntry = claim.StatusHistory.Last();
+            var notification = GetCustomerNotification(claim.Status);
+            if (notification is not null)
+            {
+                foreach (var claimant in claim.Claimants)
+                {
+                    claim.AddClaimantNotification(
+                        claimant,
+                        notification.Value.Category,
+                        notification.Value.Title,
+                        notification.Value.Message,
+                        occurredAtUtc,
+                        $"status:{historyEntry.Id}:{claimant.Id}");
+                }
+            }
         }
 
         await repository.SaveChangesAsync(cancellationToken);
     }
+
+    private static (string Category, string Title, string Message)? GetCustomerNotification(
+        ClaimStatus status) =>
+        status switch
+        {
+            ClaimStatus.Approved =>
+                ("ClaimApproved", "Claim approved", "Your claim has been approved."),
+            ClaimStatus.Declined =>
+                ("ClaimDeclined", "Claim decision",
+                    "Your claim was not approved. Sign in or contact the claims team for assistance."),
+            ClaimStatus.Settled =>
+                ("ClaimSettled", "Settlement paid", "A settlement payment has been recorded for your claim."),
+            _ => null
+        };
 
     private static bool IsValidClaimReference(string? value) =>
         value is { Length: 39 } &&
