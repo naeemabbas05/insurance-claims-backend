@@ -36,8 +36,26 @@ Claims require an active policy covering the incident, matching claim and policy
 
 ## Run locally
 
-Requires the .NET 10 SDK. The Development configuration uses SQL Server LocalDB. The API does not apply migrations automatically; apply them before using database-backed endpoints. The background outbox publisher starts polling SQL Server after host startup.
-In Development, JWT authority and audience settings are optional so the API, health checks, and Swagger can run without an identity provider; authenticated endpoints remain unavailable until JWT settings are supplied. Outside Development, both settings are required at startup. See [Authentication and authorization](#authentication-and-authorization) to configure them.
+Requires the .NET 10 SDK. The Development configuration uses the SQL Server connection string in `appsettings.Development.json`. The API does not apply migrations automatically; apply them before using database-backed endpoints. The background outbox publisher starts polling SQL Server after host startup.
+
+Local development uses a Keycloak realm with demo users. Start Keycloak before the API so the API can validate issued access tokens:
+
+```powershell
+docker compose -f docker-compose.identity.yml up -d
+dotnet run --project src\Chubb.Apac.ClaimsManagement.Api
+```
+
+The realm is imported from `dev/keycloak/claims-demo-realm.json` at first startup. In the frontend, choose **Sign in** and use one of these local accounts:
+
+| Workspace | Username | Password |
+| --- | --- | --- |
+| Claimant | `claimant` | `DemoClaimant123!` |
+| Claims officer | `officer` | `DemoOfficer123!` |
+| Manager | `manager` | `DemoManager123!` |
+
+These credentials and the Keycloak bootstrap admin password are for local development only. Stop Keycloak with `docker compose -f docker-compose.identity.yml down`.
+
+Outside Development, configure `Jwt__Authority` and `Jwt__Audience` for the organization's OpenID Connect provider. See [Authentication and authorization](#authentication-and-authorization).
 
 ```powershell
 dotnet run --project src\Chubb.Apac.ClaimsManagement.Api
@@ -192,7 +210,7 @@ $env:ConnectionStrings__ClaimsDatabase = "Server=.\SQLEXPRESS;Database=ChubbClai
 
 ## Authentication and authorization
 
-The API validates JWT bearer tokens against an external OpenID Connect authority. Configure these environment variables before starting the API:
+The API validates JWT bearer tokens against an OpenID Connect authority. Development points to the local Keycloak realm. Configure these environment variables for other environments before starting the API:
 
 ```powershell
 $env:Jwt__Authority = "https://identity.example.com"
@@ -250,7 +268,7 @@ The integration test is reported as skipped when `CHUBB_CLAIMS_SQLSERVER_TEST_CO
 ## Assumptions
 
 - The deployment supplies exactly the six configured APAC market definitions. Defaults are MY/MYR, ID/IDR, SG/SGD, KH/KHR, TH/THB, and AU/AUD.
-- The identity provider is external and issues trusted JWTs with the documented roles and identity claims. Development can start without JWT settings for health/Swagger use, but protected routes still require a valid token.
+- The identity provider issues trusted JWTs with the documented roles and identity claims. The local Keycloak realm is for development only; production must use the organization's identity provider.
 - Claim and incident timestamps are UTC. Management date filters are inclusive UTC calendar dates over `ReportedAtUtc`.
 - Decision explanations returned to claimants are generic by design; staff-entered decision reasons remain internal until a separately reviewed customer-safe explanation field and workflow are defined.
 - The default 14-day SLA target is illustrative and must be replaced with approved market-specific targets before production use.
@@ -260,7 +278,7 @@ The integration test is reported as skipped when `CHUBB_CLAIMS_SQLSERVER_TEST_CO
 
 ## Limitations and future improvements
 
-- Configure and validate a production identity provider, role provisioning, and staff lifecycle; this repository does not issue JWTs or manage IdP users.
+- Configure and validate a production identity provider, role provisioning, and staff lifecycle; the API does not issue JWTs or manage production IdP users.
 - Readiness currently checks API process health only, not SQL Server or Kafka connectivity.
 - Kafka publishing is implemented, but inbound consumers, schema registry integration, dead-letter operations, and event retention are not.
 - Documents currently have domain metadata only; binary upload, malware scanning, retention, and secure object storage need implementation.

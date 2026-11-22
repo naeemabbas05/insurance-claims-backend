@@ -1,0 +1,136 @@
+{
+  "realm": "claims-demo",
+  "enabled": true,
+  "displayName": "Claims Local Development",
+  "registrationAllowed": false,
+  "loginWithEmailAllowed": true,
+  "resetPasswordAllowed": false,
+  "rememberMe": false,
+  "accessTokenLifespan": 900,
+  "roles": {
+    "realm": [
+      { "name": "Claimant", "description": "Local claimant demo user" },
+      { "name": "ClaimsOfficer", "description": "Local claims officer demo user" },
+      { "name": "Manager", "description": "Local manager demo user" }
+    ]
+  },
+  "clients": [
+    {
+      "clientId": "claims-frontend",
+      "name": "Claims frontend",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "redirectUris": ["http://localhost:4200/auth/callback"],
+      "webOrigins": ["http://localhost:4200"],
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "http://localhost:4200/*"
+      },
+      "protocolMappers": [
+        {
+          "name": "claims-api audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "included.custom.audience": "claims-api",
+            "access.token.claim": "true",
+            "id.token.claim": "false"
+          }
+        },
+        {
+          "name": "backend role claim",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-realm-role-mapper",
+          "consentRequired": false,
+          "config": {
+            "claim.name": "role",
+            "jsonType.label": "String",
+            "multivalued": "true",
+            "usermodel.realmRoleMapping.rolePrefix": "",
+            "access.token.claim": "true",
+            "id.token.claim": "false"
+          }
+        },
+        {
+          "name": "claimant_id attribute",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "consentRequired": false,
+          "config": {
+            "user.attribute": "claimant_id",
+            "claim.name": "claimant_id",
+            "jsonType.label": "String",
+            "access.token.claim": "true",
+            "id.token.claim": "false",
+            "userinfo.token.claim": "false"
+          }
+        },
+        {
+          "name": "staff_user_id attribute",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "consentRequired": false,
+          "config": {
+            "user.attribute": "staff_user_id",
+            "claim.name": "staff_user_id",
+            "jsonType.label": "String",
+            "access.token.claim": "true",
+            "id.token.claim": "false",
+            "userinfo.token.claim": "false"
+          }
+        }
+      ]
+    }
+  ],
+  "users": [
+    {
+      "username": "claimant",
+      "enabled": true,
+      "email": "claimant@example.com",
+      "emailVerified": true,
+      "firstName": "Demo",
+      "lastName": "Claimant",
+      "attributes": {
+        "claimant_id": ["91efc9f8-6f58-4dc8-a866-e6cb079ef2f5"]
+      },
+      "credentials": [
+        { "type": "password", "value": "DemoClaimant123!", "temporary": false }
+      ],
+      "realmRoles": ["Claimant"]
+    },
+    {
+      "username": "officer",
+      "enabled": true,
+      "email": "seed.handler.my@chubb.example",
+      "emailVerified": true,
+      "firstName": "Demo",
+      "lastName": "Officer",
+      "attributes": {
+        "staff_user_id": ["f12b52c1-8c11-4aa3-9bc5-c658dc509b01"]
+      },
+      "credentials": [
+        { "type": "password", "value": "DemoOfficer123!", "temporary": false }
+      ],
+      "realmRoles": ["ClaimsOfficer"]
+    },
+    {
+      "username": "manager",
+      "enabled": true,
+      "email": "seed.admin.au@chubb.example",
+      "emailVerified": true,
+      "firstName": "Demo",
+      "lastName": "Manager",
+      "attributes": {
+        "staff_user_id": ["f12b52c1-8c11-4aa3-9bc5-c658dc509b06"]
+      },
+      "credentials": [
+        { "type": "password", "value": "DemoManager123!", "temporary": false }
+      ],
+      "realmRoles": ["Manager"]
+    }
+  ]
+}
